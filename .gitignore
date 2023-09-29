@@ -1,3 +1,21 @@
-*.log
-token.txt
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Virtual Environment
+venv/
+env/
+*.env
+
+# JSON
 *.json
+
+# Visual Studio Code
+.vscode/
+
+# Token
+token.txt
