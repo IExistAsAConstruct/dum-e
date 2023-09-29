@@ -1,0 +1,325 @@
+{
+    "1125871833053417585": {
+        "count": 5,
+        "last_based_time": 1689795118.993724,
+        "kekw_count": 35,
+        "rank": "Stand Up Comedian",
+        "message_count": 361,
+        "daily_kek_count": 0,
+        "kek_history": [
+            [
+                "2023-07-31",
+                9
+            ],
+            [
+                "2023-08-01",
+                10
+            ],
+            [
+                "2023-08-02",
+                -14
+            ]
+        ]
+    },
+    "453445704690434049": {
+        "count": 13,
+        "last_based_time": 1690823654.2744615,
+        "kekw_count": 151,
+        "rank": "Professional Clown",
+        "message_count": 7835,
+        "daily_kek_count": 20,
+        "kek_history": [
+            [
+                "2023-07-31",
+                20
+            ]
+        ]
+    },
+    "235473795035430912": {
+        "count": 6,
+        "last_based_time": 1690412566.3067694,
+        "kekw_count": 506,
+        "rank": "Kekw Collector",
+        "message_count": 16945,
+        "daily_kek_count": -19,
+        "kek_history": [
+            [
+                "2023-07-31",
+                11
+            ],
+            [
+                "2023-08-01",
+                12
+            ]
+        ]
+    },
+    "972507897831493672": {
+        "count": 4,
+        "last_based_time": 1690431847.8488648,
+        "kekw_count": 9,
+        "rank": "Occasionally Funny",
+        "message_count": 1189,
+        "daily_kek_count": 1,
+        "kek_history": [
+            [
+                "2023-07-31",
+                2
+            ],
+            [
+                "2023-08-01",
+                3
+            ]
+        ]
+    },
+    "496538630542721024": {
+        "count": 2,
+        "last_based_time": 1689683229.2886775,
+        "kekw_count": 349,
+        "rank": "Stand Up Comedian But Funny",
+        "message_count": 17278,
+        "daily_kek_count": 0,
+        "kek_history": [
+            [
+                "2023-07-31",
+                2
+            ],
+            [
+                "2023-08-02",
+                7
+            ],
+            [
+                "2023-08-03",
+                1
+            ]
+        ]
+    },
+    "803320666354221056": {
+        "count": 8,
+        "last_based_time": 1690772754.3257,
+        "kekw_count": 502,
+        "rank": "Kekw Collector",
+        "message_count": 9658,
+        "daily_kek_count": 0,
+        "kek_history": [
+            [
+                "2023-07-31",
+                5
+            ],
+            [
+                "2023-08-02",
+                6
+            ]
+        ]
+    },
+    "418573694189699072": {
+        "count": 3,
+        "last_based_time": 1690475143.3327122,
+        "kekw_count": 191,
+        "rank": "Professional Clown",
+        "message_count": 10102,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "146996859183955968": {
+        "count": 4,
+        "last_based_time": 1690673969.801214,
+        "kekw_count": 59,
+        "rank": "Class Clown",
+        "message_count": 18077,
+        "daily_kek_count": 1,
+        "kek_history": [
+            [
+                "2023-07-31",
+                1
+            ],
+            [
+                "2023-08-02",
+                2
+            ]
+        ]
+    },
+    "979023288368001104": {
+        "count": 4,
+        "last_based_time": 1690674306.835107,
+        "kekw_count": 11,
+        "rank": "Jokester",
+        "message_count": 3354,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "278595691948015618": {
+        "count": 8,
+        "last_based_time": 1690758727.4943979,
+        "kekw_count": 69,
+        "rank": "Class Clown",
+        "message_count": 10271,
+        "daily_kek_count": 0,
+        "kek_history": [
+            [
+                "2023-07-31",
+                15
+            ],
+            [
+                "2023-08-01",
+                16
+            ],
+            [
+                "2023-08-02",
+                1
+            ],
+            [
+                "2023-08-03",
+                1
+            ]
+        ]
+    },
+    "134155703832150016": {
+        "count": 1,
+        "kekw_count": 372,
+        "last_based_time": 1689790736.2388256,
+        "rank": "Kekw Collector",
+        "message_count": 9543,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "344283337038495745": {
+        "count": 0,
+        "kekw_count": 18,
+        "rank": "Jokester",
+        "message_count": 318,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "369204009489399811": {
+        "count": 0,
+        "kekw_count": 6,
+        "rank": "Occasionally Funny",
+        "message_count": 94,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "642180115786104852": {
+        "count": 0,
+        "kekw_count": 10,
+        "rank": "Jokester",
+        "message_count": 201,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "490302579188695050": {
+        "count": 0,
+        "kekw_count": 34,
+        "rank": "Stand Up Comedian",
+        "message_count": 192,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "200323950729887744": {
+        "count": 0,
+        "kekw_count": 2,
+        "rank": "Occasionally Funny",
+        "message_count": 20,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "613579697275535371": {
+        "count": 0,
+        "kekw_count": 5,
+        "rank": "Occasionally Funny",
+        "message_count": 203,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "463373766312067072": {
+        "count": 0,
+        "kekw_count": 2,
+        "rank": "Occasionally Funny",
+        "message_count": 4,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "880454193666727986": {
+        "count": 0,
+        "kekw_count": 4,
+        "rank": "Occasionally Funny",
+        "message_count": 267,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "104248823563448320": {
+        "count": 0,
+        "kekw_count": 1,
+        "rank": "Occasionally Funny",
+        "message_count": 10,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "711154685171466250": {
+        "count": 0,
+        "kekw_count": 1,
+        "rank": "Occasionally Funny",
+        "message_count": 13,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "545327500482576394": {
+        "count": 0,
+        "kekw_count": 1,
+        "rank": "Occasionally Funny",
+        "message_count": 300,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "126707945374351361": {
+        "count": 0,
+        "kekw_count": 1,
+        "rank": "Occasionally Funny",
+        "message_count": 30,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "510789298321096704": {
+        "count": 0,
+        "kekw_count": 2,
+        "rank": "Occasionally Funny",
+        "message_count": 78,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "826489832037285908": {
+        "kekw_count": 0,
+        "message_count": 3,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "998662158227357837": {
+        "kekw_count": 0,
+        "message_count": 4,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "361454788518346754": {
+        "kekw_count": 0,
+        "message_count": 1,
+        "daily_kek_count": 0,
+        "kek_history": []
+    },
+    "893899904173375489": {
+        "kekw_count": 4,
+        "daily_kek_count": 5,
+        "message_count": 1,
+        "kek_history": [
+            [
+                "2023-07-31",
+                5
+            ]
+        ],
+        "rank": "Occasionally Funny"
+    },
+    "204646671907422209": {
+        "kekw_count": 0,
+        "daily_kek_count": 0,
+        "message_count": 1,
+        "kek_history": []
+    }
+}
