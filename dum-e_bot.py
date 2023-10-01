@@ -264,7 +264,7 @@ async def on_message(message):
     content = re.sub(r"[',.?]", "", message.content.lower())
     guild = message.guild  # Get the guild (server) object
     user_id = message.author.id
-    bingo_channel = discord.utils.get(message.guild.text_channels, name='bingo')
+    #bingo_channel = discord.utils.get(message.guild.text_channels, name='bingo')
     
     if content.startswith("!"):
         if await is_rate_limited(user_id):
@@ -721,7 +721,7 @@ async def on_message(message):
         await message.channel.send(file=file)
     
     if content.startswith('!bingo'):
-        await message.channel.send("Go to https://bingobaker.com#64eb432fd0089bb8 and generate your own basedcount_bot bingo card!\nIf you get a blank card, look up \"basedcount_bot bingo\" in the search bar of the website.\n\nOnly people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\nRules:\n* Get a bingo by marking off the board whenever certain events happen.\n* No cheesing the card by purposely doing the tiles on the board. It must happen naturally.\n* If it doesn't happen in the basedcount server, it doesn't count.\n* If it doesn't happen in Main (general-bots), it doesn't count.\n* I Exist and the admins get to determine what does or does not count as a hit on the bingo card if it's not obvious.\n* If you notice a message that could mark a spot in the bingo card, reply to the message with an image of the square it would mark off in your bingo card.\n* If someone posts a valid bingo, no more squares can be marked unless you noticed you missed a mark before.\n* If more than one people get a bingo at once, it counts as a win for all of them.\n* The current round lasts for one week, starting at the beginning of the round. If seven days have passed without a bingo, then the game is a draw and a new round with new cards begins.\n\nWinners:\n* Nerd02: 3 wins\n* a_demon_ninja: 2 wins\n* I Exist: 1 win\n* Atalocke: 1 win\n* CalpurniaNight: 1 win\n* Coda: 1 win")
+        await message.channel.send("Go to https://bingobaker.com#64eb432fd0089bb8 and generate your own basedcount_bot bingo card!\nIf you get a blank card, look up \"basedcount_bot bingo\" in the search bar of the website.\n\nOnly people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\nRules:\n* Get a bingo by marking off the board whenever certain events happen.\n* No cheesing the card by purposely doing the tiles on the board. It must happen naturally.\n* If it doesn't happen in the basedcount server, it doesn't count.\n* If it doesn't happen in Main (general-bots), it doesn't count.\n* I Exist and the admins get to determine what does or does not count as a hit on the bingo card if it's not obvious.\n* If you notice a message that could mark a spot in the bingo card, reply to the message with an image of the square it would mark off in your bingo card.\n* If someone posts a valid bingo, no more squares can be marked unless you noticed you missed a mark before.\n* If more than one people get a bingo at once, it counts as a win for all of them.\n* The current round lasts for one week, starting at the beginning of the round. If seven days have passed without a bingo, then the game is a draw and a new round with new cards begins.\n\nWinners:\n* Nerd02: 3 wins\n* a_demon_ninja: 2 wins\n* Coda: 2 wins\n* I Exist: 1 win\n* Atalocke: 1 win\n* CalpurniaNight: 1 win")
         # Ranks:
         # 5 wins - Bingo Professional
         # 10 wins - Bingo Master
@@ -909,6 +909,8 @@ async def on_message(message):
         for i, (user_id, user_data) in enumerate(count_leaderboard[start_idx:end_idx], start=start_idx + 1):
             member = message.guild.get_member(int(user_id))
             username = member.display_name if member else (await client.fetch_user(user_id)).name if await client.fetch_user(user_id) else "Unknown User"
+            if username == "laux3650atmylaurierdotca":
+                username = "IF the Funny - Retired. Salute!"
             if member:
                 name = (await client.fetch_user(user_id)).name
                 username = f"{username} ({name})"
@@ -1170,6 +1172,8 @@ async def on_raw_reaction_add(payload):
         for i, (user_id, user_data) in enumerate(count_leaderboard[start_idx:end_idx], start=start_idx + 1):
             member = message.guild.get_member(int(user_id))
             username = member.display_name if member else (await client.fetch_user(user_id)).name if await client.fetch_user(user_id) else "Unknown User"
+            if username == "laux3650atmylaurierdotca":
+                username = "IF the Funny - Retired. Salute!"
             if member:
                 name = (await client.fetch_user(user_id)).name
                 username = f"{username} ({name})"
