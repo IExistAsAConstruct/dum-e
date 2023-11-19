@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import time
 import json
 import os.path
+import requests
 import shutil
 from discord.ext import commands, tasks
 
@@ -26,10 +27,6 @@ seen_messages = set()
 file_path = "basedcount.json"
 token_path =  'token.txt'
 backup_file = "backup_count.txt"  # Backup file path
-target_channel_id = 1119261381745709127  # Replace with your channel ID
-sticker_ids = [1141371771308752896, 1141374369344540712, 1141371935469613138]
-source_id = 1126457049090379826
-bingo_whitelist = [826405737093136437, 1061281533681475614, 1001391150705418300, 1119261381745709127, 934755735311638599, 1062553300899217478, 1064690093438283886, 1087215587031257138, 1121479899841044510]
 
 # Function to capitalize text
 def capitalize_text(text):
@@ -157,7 +154,6 @@ def calculate_kek_per_day_ratio(daily_kek_counts):
     total_days = len(daily_kek_counts)
     
     
-    
     if total_days == 0:
         return 0.0
 
@@ -165,6 +161,13 @@ def calculate_kek_per_day_ratio(daily_kek_counts):
     
 def get_kek_per_day_ratio(user_data):
     return calculate_kek_per_day_ratio(user_data["daily_kek_counts"])
+    
+def ordinal(number):
+    if 10 <= number % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(number % 10, 'th')
+    return f"{number}{suffix}"
     
 user_cooldowns = {}
 user_reactions_file = "user_reactions.json"
@@ -194,49 +197,17 @@ commands_list = [
     "wordsinmymouth - Puts words in DUM-E's mouth. Used as 'wordsinmymouth [Server ID] [channel-name] [message]'. DMS ONLY."
 ]
 
-commands_list_allcaps = [
-    "!BALLOON - WHAT'S WRONG WITH YOU? YOU'RE AN IDIOT...",
-    "!BASEDCOUNTPAGE [NUMBER] - VIEW EVERYONE'S DISCORD BASED COUNT. NUMBER IS PAGE NUMBER, NO NUMBER DEFAULTS TO PAGE 1.",
-    "!BINGO - GAIN A LINK TO THE SEMI-OFFICIAL BASEDCOUNT_BOT BINGO CARD. MAY CONTAIN IN-JOKES.",
-    "!COMMANDS [NUMBER] - VIEW A LIST OF ALL COMMANDS (DUH). NUMBER IS PAGE NUMBER, NO NUMBER DEFAULTS TO PAGE 1.",
-    "!DEKEKCOMMENT - I JUST DEKEK'D YOUR COMMENT.",
-    "!HACKING - OKAY, KID, I'M DONE. I DOUBT YOU EVEN HAVE BASIC KNOWLEDGE OF HACKING...",
-    "!IFTHEFUNNY - DID YOU EVER HEAR THE TRAGEDY OF IRONICFOREMANITE THE FUNNY? I THOUGHT NOT...",
-    "!KEKCOUNTPAGE [NUMBER] - VIEW THE DISCORD KEKW COUNT LEADERBOARD (HOW MANY KEKWS USERS RECEIVED). NUMBER IS PAGE NUMBER, NO NUMBER DEFAULTS TO PAGE 1.",
-    "!KEKRATIO [NAME] - VIEW A USER'S KEK RATIO. [NAME] IS EITHER USER DISPLAY NAME OR USERNAME. NO NAME DEFAULTS TO YOUR KEKRATIO.",
-    "!KPD [NAME] - VIEW A USER'S KPD (KEK PER DAY) AVERAGE. [NAME] IS EITHER USER DISPLAY NAME OR USERNAME. NO NAME DEFAULTS TO YOUR KPD.",
-    "!NAVYSEALS - WHAT THE FUCK DID YOU JUST FUCKING SAY ABOUT ME, YOU LITTLE BITCH?",
-    "!POSTINGCONTENT - POSTING CONTENT AGAIN THAT WAS DEEMED RULE-BREAKING BY ONE OF US IS DE FACTO CONSIDERED RULE-BREAKING...",
-    "!PRODUCT - I'VE PERSONALLY SEEN A LOT OF VERY SMART PEOPLE TRY AND FIGURE OUT HOW TO MAKE A PRODUCT BETTER...",
-    "!SHAKEYS - SHOWS OFF THE LATEST SHAKEY'S AD THAT COLLABORATES WITH PCM.",
-    "!SOFUNNY - OMG, THIS VIDEO IS SO FUNNY, I LAUGHED SO HARD...",
-    "!STARTSTOPWATCH - STARTS A PERSONAL STOPWATCH FOR YOU ONLY. LAP WITH !LAPSTOPWATCH. STOP WITH !STOPSTOPWATCH.",
-    "!TOILETBED - I KNOW THAT SOME PEOPLE MIGHT THINK IT'S WEIRD THAT I LIVE IN MY TOILET BED...",
-    "!TTS - MAKES DUM-E SAY SPOOKY TTS NOISES.",
-    "!UNREACT - MAKES DUM-E REMOVE HIS REACTIONS TO THE LAST 10 MESSAGES.",
-    "WORDSINMYMOUTH - PUTS WORDS IN DUM-E'S MOUTH. USED AS 'WORDSINMYMOUTH [SERVER ID] [CHANNEL-NAME] [MESSAGE]'. DMS ONLY."
-]
-
 
 def create_commands_embed(page_num, total_pages, message):
     commands_per_page = 5
     start_idx = (page_num - 1) * commands_per_page
     end_idx = start_idx + commands_per_page
-    if message.channel == target_channel_id:
-        embed = discord.Embed(title=f"COMMANDS (PAGE {page_num} / {total_pages})", color=discord.Color.blue())
-        embed.set_footer(text=f"PAGE {page_num}/{total_pages} | {len(commands_list)} COMMANDS | USE !COMMANDS [PAGENUM] TO SEE OTHER PAGES")
+    embed = discord.Embed(title=f"Commands (Page {page_num} / {total_pages})", color=discord.Color.blue())
+    embed.set_footer(text=f"Page {page_num}/{total_pages} | {len(commands_list)} Commands | use !commands [pagenum] to see other pages")
         
-        for i, command in enumerate(commands_list_allcaps[start_idx:end_idx], start=start_idx + 1):
-            # Assuming that the command is in the format "command - description"
-            command_name, command_description = command.split(" - ", 1)
-            embed.add_field(name=command_name, value=command_description, inline=False)
-    else:
-        embed = discord.Embed(title=f"Commands (Page {page_num} / {total_pages})", color=discord.Color.blue())
-        embed.set_footer(text=f"Page {page_num}/{total_pages} | {len(commands_list)} Commands | use !commands [pagenum] to see other pages")
-        
-        for i, command in enumerate(commands_list[start_idx:end_idx], start=start_idx + 1):
-            command_name, command_description = command.split(" - ", 1)
-            embed.add_field(name=command_name, value=command_description, inline=False)
+    for i, command in enumerate(commands_list[start_idx:end_idx], start=start_idx + 1):
+        command_name, command_description = command.split(" - ", 1)
+        embed.add_field(name=command_name, value=command_description, inline=False)
 
     return embed
     
@@ -264,21 +235,12 @@ async def on_message(message):
     content = re.sub(r"[',.?]", "", message.content.lower())
     guild = message.guild  # Get the guild (server) object
     user_id = message.author.id
-    #bingo_channel = discord.utils.get(message.guild.text_channels, name='bingo')
+    
     
     if content.startswith("!"):
         if await is_rate_limited(user_id):
             print("user was rate limited")
             return
-            
-    for sticker in message.stickers:
-        if sticker.id in sticker_ids:
-            if bingo_channel and message.channel in bingo_whitelist:
-                await bingo_channel.send("https://imgur.com/PXCLSOt \nDunning-Kruger (and water table) sticker bingo card ticked!")
-                
-        if sticker.id == source_id:
-            if bingo_channel and message.channel in bingo_whitelist:
-                await bingo_channel.send("https://imgur.com/oQiEn1q \nSource? bingo card ticked!")
 
     # Find emojis in the message content
 #    emojis = []
@@ -328,10 +290,12 @@ async def on_message(message):
         else:
             response = "This is forcing compelled speech!"
         await message.channel.send(response)
+        print(f"{client.get_user(user_id).name} got compelled speech'd")
         
     if random.random() < 0.0001:
         response = "De acuerdo con todas las leyes conocidas de la aviación,  Es gibt keine Möglichkeit eine Biene 到处跑，然后抛弃你。Je ne te ferais jamais pleurer, je ne te ferais jamais pleurer ang lalaking nasa salamin ay tumango- aspetta cazzo mi sono distratto. cosa stavo cantando di nuovo?"
         await message.channel.send(response)
+        print(f"{client.get_user(user_id).name} got bee movie'd")
         
     data = load_data(file_path)  # Load data before processing the message
     
@@ -709,6 +673,12 @@ async def on_message(message):
         if message.mentions:
             response = f"{message.mentions[0].mention} {response}"
         await message.channel.send(response)
+        
+    if content.startswith('!authfascism'):
+        response = 'auth is just fascism, or as I like to call it, trumpism'
+        if message.mentions:
+            response = f"{message.mentions[0].mention} {response}"
+        await message.channel.send(response)
     
     if content.startswith('!navyseals'):
         response = 'What the fuck did you just fucking say about me, you little bitch? I\'ll have you know I graduated top of my class in the Navy Seals, and I\'ve been involved in numerous secret raids on Al-Quaeda, and I have over 300 confirmed kills. I am trained in gorilla warfare and I\'m the top sniper in the entire US armed forces. You are nothing to me but just another target. I will wipe you the fuck out with precision the likes of which has never been seen before on this Earth, mark my fucking words. You think you can get away with saying that shit to me over the Internet? Think again, fucker. As we speak I am contacting my secret network of spies across the USA and your IP is being traced right now so you better prepare for the storm, maggot. The storm that wipes out the pathetic little thing you call your life. You\'re fucking dead, kid. I can be anywhere, anytime, and I can kill you in over seven hundred ways, and that\'s just with my bare hands. Not only am I extensively trained in unarmed combat, but I have access to the entire arsenal of the United States Marine Corps and I will use it to its full extent to wipe your miserable ass off the face of the continent, you little shit. If only you could have known what unholy retribution your little "clever" comment was about to bring down upon you, maybe you would have held your fucking tongue. But you couldn\'t, you didn\'t, and now you\'re paying the price, you goddamn idiot. I will shit fury all over you and you will drown in it. You\'re fucking dead, kiddo.'
@@ -721,7 +691,37 @@ async def on_message(message):
         await message.channel.send(file=file)
     
     if content.startswith('!bingo'):
-        await message.channel.send("Go to https://bingobaker.com#64eb432fd0089bb8 and generate your own basedcount_bot bingo card!\nIf you get a blank card, look up \"basedcount_bot bingo\" in the search bar of the website.\n\nOnly people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\nRules:\n* Get a bingo by marking off the board whenever certain events happen.\n* No cheesing the card by purposely doing the tiles on the board. It must happen naturally.\n* If it doesn't happen in the basedcount server, it doesn't count.\n* If it doesn't happen in Main (general-bots), it doesn't count.\n* I Exist and the admins get to determine what does or does not count as a hit on the bingo card if it's not obvious.\n* If you notice a message that could mark a spot in the bingo card, reply to the message with an image of the square it would mark off in your bingo card.\n* If someone posts a valid bingo, no more squares can be marked unless you noticed you missed a mark before.\n* If more than one people get a bingo at once, it counts as a win for all of them.\n* The current round lasts for one week, starting at the beginning of the round. If seven days have passed without a bingo, then the game is a draw and a new round with new cards begins.\n\nWinners:\n* Nerd02: 3 wins\n* a_demon_ninja: 2 wins\n* Coda: 2 wins\n* I Exist: 1 win\n* Atalocke: 1 win\n* CalpurniaNight: 1 win")
+        
+        api_endpoint = 'https://basedcount-bingo.netlify.app/api/v1/leaderboard'
+
+        try:
+            # Make a GET request to the API
+            response = requests.get(api_endpoint)
+
+            # Check if the request was successful (status code 200)
+            if response.status_code == 200:
+                # Parse the JSON response
+                data = response.json()
+
+                # Process leaderboard data
+                leaderboard_entries = data['leaderboard']
+                leaderboard_message = "Leaderboard:\n"
+                for entry in leaderboard_entries:
+                    place = ordinal(entry['place'])
+                    leaderboard_message += f"{place} - {entry['name']} ({entry['victories']} wins)\n"
+
+                # Send the leaderboard message to the Discord channel
+                #await ctx.send(leaderboard_message)
+
+            else:
+                await message.channel.send(f"Error: Unable to fetch data from the API (Status Code: {response.status_code})")
+    
+        except Exception as e:
+            await message.channel.send(f"An error occurred: {e}")
+            
+        response = "Go to https://basedcount-bingo.netlify.app/ and play with the official basedcount_bot bingo card!\n\nOnly people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\nRules:\n* Log in with your Discord account.\n* A card has automatically been generated for you. You don't have to take screenshots of it nor send it in the bingo channel.\n* When someone ticks a box for the first time, a notification will be sent by the bot here on the bingo channel, as well as on the log on the site. You don't have to send a screenshot of the ticked box.\n* Get a bingo by marking off the board whenever certain events happen.\n* No cheesing the card by purposely doing the tiles on the board. It must happen naturally.\n* If it doesn't happen in the basedcount server, it doesn't count.\n* If it doesn't happen in Main (general-bots), it doesn't count.\n* I Exist and the admins get to determine what does or does not count as a hit on the bingo card if it's not obvious.\n* If someone gets a valid bingo, no more squares can be marked unless you noticed you missed a mark before.\n* If more than one people get a bingo at once, it counts as a win for all of them.\n* The current round lasts for one week, starting at the beginning of the round. If seven days have passed without a bingo, then the game is a draw and a new round with new cards begins.\n\n" + leaderboard_message
+        
+        await message.channel.send(response)
         # Ranks:
         # 5 wins - Bingo Professional
         # 10 wins - Bingo Master
@@ -740,19 +740,38 @@ async def on_message(message):
         
             for _ in range(response_counter[message.author.id]):
                 await message.reply('I browse using Internet Explorer 9!')
+                print(f"{client.get_user(user_id).name} got browser'd")
         
     if "drifting" in content or "drift" in content:
         if random.random() < 0.15:
             file = discord.File('multitrack_drifting.png', filename='multitrack_drifting.png')
             await message.channel.send(file=file)
+            print(f"{client.get_user(user_id).name} got drifted")
+            
+    if "wrong" in content:
+        if random.random() < 0.01:
+            response = "https://media.discordapp.net/stickers/1174407116983894036?size=160&passthrough=false"
+            await message.channel.send(response)
+            print(f"{client.get_user(user_id).name} got drifted")
             
     if "joever" in content or content.startswith('its joever') or 'over' in content:
         if random.random() < 0.01:
             file = discord.File('joever.jpg', filename='joever.jpg')
             await message.channel.send(file=file)
-            if bingo_channel and message.channel in bingo_whitelist:
-                await bingo_channel.send("https://imgur.com/O0z43RX \nIt's joever bingo card ticked!")
+            print(f"{client.get_user(user_id).name} got joever'd")
+                
+    if "swiss" in content or 'switzerland' in content:
+        if random.random() < 0.01:
+            response = "https://en.wikipedia.org/wiki/Switzerland_during_the_World_Wars#Financial_relationships_with_Nazi_Germany"
+            await message.channel.send(response)
+            print(f"{client.get_user(user_id).name} got swiss'd")
     
+    if "lonely" in content or 'soulmate' in content or 'love' in content:
+        if random.random() < 0.01:
+            response = "Never worry about falling in love with someone who isn’t right for you. Taiwanese mail-order brides find foreign men like you irresistible!"
+            await message.channel.send(response)
+            print(f"{client.get_user(user_id).name} got mail order bride'd")
+            
     if content.startswith('joewari da'):
         file = discord.File('joewari.jpg', filename='joewari.jpg')
         await message.channel.send(file=file)
@@ -761,6 +780,7 @@ async def on_message(message):
         if random.random() < 0.001:
             response = 'Posting content again that was deemed rule breaking by one of us is defacto considered rule breaking. If you have questions as to why it was removed. You can ask via modmail and we will answer there. Just doing what op did, and technically you have done, breaks the rules by this virtue. That said, the rule breaking content is barely visible so I will defer to other mods before doing anything on this.\n\nBefore any of you snowflakes even try to go after my flair. I have been told this is operating procedure already when I joined as well as I wasn\'t the one to remove that post.\n\nEdit: Nice, reported for misinformation lmao. I don\'t do anything to my own reports but I was expecting this. Also, nice Reddit Cares whoever did it. I\'m sure you\'re smugging real nicely right now. Personally, I don\'t care'
             await message.channel.send(response)
+            print(f"{client.get_user(user_id).name} got copypasta'd")
     
     if not isinstance(message.channel, discord.DMChannel):
         target_role = discord.utils.get(message.guild.roles, id=928987214917025832)
