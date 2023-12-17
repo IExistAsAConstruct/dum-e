@@ -12,6 +12,7 @@ from pymongo import MongoClient
 from sympy import sympify
 from lightbulb.ext import tasks
 from hikari import Intents
+from hikari import Snowflake
 
 dotenv.load_dotenv()
 
@@ -27,81 +28,49 @@ tasks.load(bot)
 
 bot.load_extensions_from("./extensions/")
 
-@tasks.task(m=10, auto_start=True)
+@tasks.task(m=6, auto_start=True)
 async def collect_mesages():
-    guild_id = 826405737093136434
-    bot_guilds = await bot.rest.fetch_my_guilds()
-    target_guild = next((guild for guild in bot_guilds if guild.id == guild_id), None)
-    
-    if target_guild:        
-        category_name = "Main"
-        channels = await bot.rest.fetch_guild_channels(target_guild.id)
-        category_channels = next((channel for channel in channels if channel.name == category_name and channel.type == hikari.ChannelType.GUILD_CATEGORY), None)
+    guild = await bot.rest.fetch_guild(826405737093136434)
+    for channel_id in [826405737093136437, 1061281533681475614, 1001391150705418300, 1119261381745709127, 934755735311638599, 1062553300899217478, 1064690093438283886, 1087215587031257138, 1121479899841044510, 1147008618894471188]:
         
-        if category_channels:
-            channels_in_category = [channel for channel in channels if getattr(channel, "parent_id", None) == category_channels.id]
-            
-            last_message_id = db.metadata.find_one({"key": "last_message_id"})
-            last_message_id = int(last_message_id["value"]) if last_message_id else None
-            
-            for channel in channels_in_category:
-                
-                if channel.name == "kek-leaderboard":
-                    continue
-                    
+        channel = await bot.rest.fetch_channel(channel_id)
+        
+        if channel and isinstance(channel, hikari.GuildTextChannel):
+            # Fetch all messages in the channel
+            last_saved_message = collection.find_one({"channel_id": channel_id}, sort=[("_id", -1)])
+            start_message_id = last_saved_message["message_id"] if last_saved_message else None
+            messages = await bot.rest.fetch_messages(channel, after=start_message_id)
+
+            # Save message data to MongoDB
+            for message in messages:
                 try:
-                    # Attempt to fetch the message with the specified ID
-                    after_message = await channel.fetch_message(last_message_id) if last_message_id else None
+                    member = await bot.rest.fetch_member(guild, message.author.id)
+                    message_data = {
+                        "message_id": message.id,
+                        "author_id": message.author.id,
+                        "author_username": message.author.username,
+                        "author_display_name": member.display_name,
+                        "content": message.content,
+                        "timestamp": message.created_at,
+                        "channel_id": channel.id,
+                        "channel_name": channel.name,
+                    }
+                    collection.insert_one(message_data)
                 except hikari.errors.NotFoundError:
-                    # Handle the NotFound exception (message not found)
-                    after_message = 1185431711786467329
-                    
-                messages = await bot.rest.fetch_messages(channel.id, after=after_message)
-                
-                for message in messages:
-                    
-                    existing_message = collection.find_one({"message_id": message.id})
-                    member = await bot.rest.fetch_message(channel, message)
-                    member = member.author
-                    member = await bot.rest.fetch_member(target_guild, member)
-                    
-                    if not existing_message:
-                        # Get the author's display name or username if display name is not available
-                        if member:
-                            author_name = member.display_name if member.display_name != member.username else message.author.username
-                            
-                            message_data = {
-                            "message_id": message.id,
-                            "author_id": member.id,
-                            "author_username": member.username,
-                            "author_display_name": author_name,
-                            "content": message.content,
-                            "timestamp": message.created_at,
-                            "channel_id": channel.id,
-                            "channel_name": channel.name,
-                            }
-                            collection.insert_one(message_data)
-
-                            # Update the last collected message ID in the database
-                            db.metadata.update_one({"key": "last_message_id"}, {"$set": {"value": message.id}}, upsert=True)
-                        
-                        else:
-                            author_name = "Unknown User"
-                            
-                            message_data = {
-                            "message_id": message.id,
-                            "author_id": message.author.id,
-                            "author_username": message.author.name,
-                            "author_display_name": message.author.name,
-                            "content": message.content,
-                            "timestamp": message.created_at,
-                            "channel_id": channel.id,
-                            "channel_name": channel.name,
-                            }
-                            collection.insert_one(message_data)
-
-                            # Update the last collected message ID in the database
-                            db.metadata.update_one({"key": "last_message_id"}, {"$set": {"value": message.id}}, upsert=True)
+                    member = "Unknown User"
+                    message_data = {
+                        "message_id": message.id,
+                        "author_id": message.author.id,
+                        "author_username": message.author.username,
+                        "author_display_name": member,
+                        "content": message.content,
+                        "timestamp": message.created_at,
+                        "channel_id": channel.id,
+                        "channel_name": channel.name,
+                    }
+                    collection.insert_one(message_data)
+                    # Insert or update the document in MongoDB
+                #    await collection.replace_one({"message_id": message_data["message_id"]}, message_data, upsert=True)
             
         
 @bot.command

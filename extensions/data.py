@@ -354,16 +354,11 @@ async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message,
         data[user_id] = {"kekw_count": user_data["kek_count"]}
     
     kekd_member_position = None
-    print(data)
     for position, item in enumerate(data):
-        print(item)
-        print(kekd_member.id)
         if item == str(kekd_member.id):
             kekd_member_position = position
-            print(f"{position} {user_id}")
             break
             
-    print(kekd_member_position)
     if kekd_member_position is not None:
         # Calculate the total number of pages
         page_size = 8
@@ -406,12 +401,12 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
     
     user = await event.app.rest.fetch_member(event.guild_id, event.user_id)
     channel = await event.app.rest.fetch_channel(event.channel_id)
-    
-    if user.is_bot:
-        return
-        
     message = await event.app.rest.fetch_message(event.channel_id, event.message_id)
     member = await event.app.rest.fetch_member(event.guild_id, message.author)
+    
+    if user.is_bot or user.id == member.id:
+        return
+        
     emoji_type = message.reactions
     for i in emoji_type:
         emoji_type = i.emoji
