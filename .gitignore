@@ -17,5 +17,5 @@ env/
 # Visual Studio Code
 .vscode/
 
-# Token
-token.txt
+# Text File
+*.txt
