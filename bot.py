@@ -27,7 +27,7 @@ tasks.load(bot)
 
 bot.load_extensions_from("./extensions/")
 
-#@tasks.task(m=10, auto_start=True)
+@tasks.task(m=10, auto_start=True)
 async def collect_mesages():
     guild_id = 826405737093136434
     bot_guilds = await bot.rest.fetch_my_guilds()
