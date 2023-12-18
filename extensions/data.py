@@ -285,7 +285,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
 
                     if based_count % 10 == 0:
                         # Get the user and channel objects
-                        channel = event.app.fetch_channel(channel_id)
+                        channel = event.app.rest.fetch_channel(channel_id)
 
                         if channel:
                             # Send congratulatory message

@@ -304,13 +304,13 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 
         if "joever" in content or content.startswith('its joever') or 'over' in content:
             if random.random() < 0.01:
-                file = hikari.File('joever.jpg', filename='joever.jpg')
+                file = hikari.File('images/joever.jpg', filename='joever.jpg')
                 await message.respond(file)
                 print(f"{event.get_member()} got joever'd")
                 
         if "dont care" in content:
             if random.random() < 0.5:
-                file = dicord.File('images/i_care.png', filename='filename.png')
+                file = hikari.File('images/i_care.png', filename='filename.png')
                 await message.respond(file)
                 print(f"{event.get_member()} got cared about")
         
@@ -321,7 +321,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 print(f"{event.get_member()} got swiss'd")
                 
         if content.startswith('joewari da'):
-            file = discord.File('joewari.jpg', filename='joewari.jpg')
+            file = discord.File('images/joewari.jpg', filename='joewari.jpg')
             await message.respond(file)
             
         if target_role in user.role_ids:
