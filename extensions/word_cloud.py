@@ -34,7 +34,8 @@ async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
             # Retrieve text contents from MongoDB for specified usernames
         text_data = " ".join([message["content"] for message in collection.find({
             "author_username": {"$in": target_usernames},
-            "content": {"$not": re.compile(url_regex)}  # Exclude messages with URLs
+            "content": {"$not": re.compile(url_regex),
+                        "$ne": None}  # Exclude messages with URLs
         })])
 
             # Preprocess text data (you may need to adjust this based on your specific requirements)
