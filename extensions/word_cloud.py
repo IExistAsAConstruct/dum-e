@@ -53,8 +53,11 @@ async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
             # Alternatively, save the Word Cloud to a file
         wordcloud.to_file("wordcloud.png")
         file = hikari.File('wordcloud.png', filename='wordcloud.png')
-        await ctx.respond(file)
-        await ctx.respond(f"{user}'s wordcloud generated. Messages considered: {length}")
+        await ctx.respond(
+            f"{user}'s wordcloud generated. Messages considered: {length}",
+            attachment = file
+        )
+        #await ctx.respond(f"{user}'s wordcloud generated. Messages considered: {length}")
     except ValueError:
         await ctx.respond(f"Error! Could not get value for word cloud.")
 
