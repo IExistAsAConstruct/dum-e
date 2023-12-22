@@ -26,9 +26,10 @@ target_usernames = []
 async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
     length = 0
     try:
+        
         user = user.username if user else ctx.author.username
         target_usernames = [user]
-        
+        await ctx.respond(f"Generating {user}'s wordcloud...")
         url_regex = r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
 
             # Retrieve text contents from MongoDB for specified usernames
@@ -46,17 +47,14 @@ async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
             # Preprocess text data (you may need to adjust this based on your specific requirements)
             # For example, you might want to use a more sophisticated text preprocessing library like nltk.
         processed_text = text_data.lower()  # Convert to lowercase for consistency
-
+        
             # Generate Word Cloud
         wordcloud = WordCloud(width=800, height=400, background_color="white").generate(processed_text)
-
+        
             # Alternatively, save the Word Cloud to a file
         wordcloud.to_file("wordcloud.png")
         file = hikari.File('wordcloud.png', filename='wordcloud.png')
-        await ctx.respond(
-            f"{user}'s wordcloud generated. Messages considered: {length}",
-            attachment = file
-        )
+        await ctx.app.rest.create_message(ctx.channel_id,content = f"{user}'s wordcloud generated. Messages considered: {length}", attachment = file)
         #await ctx.respond(f"{user}'s wordcloud generated. Messages considered: {length}")
     except ValueError:
         await ctx.respond(f"Error! Could not get value for word cloud.")
