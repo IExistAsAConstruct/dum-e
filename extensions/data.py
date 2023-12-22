@@ -199,7 +199,7 @@ async def bingo(ctx: lightbulb.Context) -> None:
             leaderboard_message = "Leaderboard:\n"
             for entry in leaderboard_entries:
                 place = ordinal(entry['place'])
-                leaderboard_message += f"{place} - {entry['name']} ({entry['victories']} wins)\n"
+                leaderboard_message += f"{place} - {entry['name']} ({entry['victories']} {'wins' if entry['victories'] > 1 or entry['victories'] < 1 else 'win'})\n"
                 
         else:
             await ctx.respond(f"Error: Unable to fetch data from the API (Status Code: {response.status_code})")
@@ -337,7 +337,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
 
                 if based_count % 10 == 0:
                     # Get the user and channel objects
-                    channel = event.app.fetch_channel(channel_id)
+                    channel = event.app.rest.fetch_channel(channel_id)
 
                     if channel:
                         # Send congratulatory message
@@ -356,7 +356,7 @@ async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message,
     kekd_member_position = None
     for position, item in enumerate(data):
         if item == str(kekd_member.id):
-            kekd_member_position = position
+            kekd_member_position = position + 1
             break
             
     if kekd_member_position is not None:
@@ -402,8 +402,10 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
     user = await event.app.rest.fetch_member(event.guild_id, event.user_id)
     channel = await event.app.rest.fetch_channel(event.channel_id)
     message = await event.app.rest.fetch_message(event.channel_id, event.message_id)
-    member = await event.app.rest.fetch_member(event.guild_id, message.author)
-    
+    try:
+        member = await event.app.rest.fetch_member(event.guild_id, message.author)
+    except hikari.errors.NotFoundError:
+        member = "Unknown User"
     if user.is_bot or user.id == member.id:
         return
         

@@ -24,7 +24,7 @@ target_usernames = []
 @lightbulb.command("wordcloud", "Generates a word cloud based on a user's messages.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand)
 async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
-    
+    length = 0
     try:
         user = user.username if user else ctx.author.username
         target_usernames = [user]
@@ -37,7 +37,12 @@ async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
             "content": {"$not": re.compile(url_regex),
                         "$ne": None}  # Exclude messages with URLs
         })])
-
+        for message in collection.find({
+            "author_username": {"$in": target_usernames},
+            "content": {"$not": re.compile(url_regex),
+                        "$ne": None}  # Exclude messages with URLs
+        }):
+            length += 1
             # Preprocess text data (you may need to adjust this based on your specific requirements)
             # For example, you might want to use a more sophisticated text preprocessing library like nltk.
         processed_text = text_data.lower()  # Convert to lowercase for consistency
@@ -49,6 +54,7 @@ async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
         wordcloud.to_file("wordcloud.png")
         file = hikari.File('wordcloud.png', filename='wordcloud.png')
         await ctx.respond(file)
+        await ctx.respond(f"{user}'s wordcloud generated. Messages considered: {length}")
     except ValueError:
         await ctx.respond(f"Error! Could not get value for word cloud.")
 

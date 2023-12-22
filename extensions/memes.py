@@ -3,7 +3,7 @@ from typing import Optional
 import re
 import random
 import asyncio
-
+import requests
 import hikari
 import lightbulb
 
@@ -11,6 +11,12 @@ meme_plugin = lightbulb.Plugin("Memes")
 
 target_user_id = 146996859183955968
 
+def ordinal(number):
+    if 10 <= number % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(number % 10, 'th')
+    return f"{number}{suffix}"
 
 @meme_plugin.command
 @lightbulb.app_command_permissions(dm_enabled=False)
@@ -249,6 +255,48 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
     response_counter = {}
     
     if event.is_bot:
+        if event.content is not None:
+            content = re.sub(r"[',.?]", "", event.content.lower())
+            if "!bingo" in content:
+                api_endpoint = 'https://basedcount-bingo.netlify.app/api/v1/leaderboard'
+                try:
+                    # Make a GET request to the API
+                    response = requests.get(api_endpoint)
+
+                    # Check if the request was successful (status code 200)
+                    if response.status_code == 200:
+                        # Parse the JSON response
+                        data = response.json()
+
+                        # Process leaderboard data
+                        leaderboard_entries = data['leaderboard']
+                        leaderboard_message = "Leaderboard:\n"
+                        for entry in leaderboard_entries:
+                            place = ordinal(entry['place'])
+                            leaderboard_message += f"{place} - {entry['name']} ({entry['victories']} {'wins' if entry['victories'] > 1 or entry['victories'] < 1 else 'win'})\n"
+                            
+                    else:
+                        await message.respond(f"Error: Unable to fetch data from the API (Status Code: {response.status_code})")
+                
+                except Exception as e:
+                    await message.respond(f"An error occurred: {e}")
+                    
+                await message.respond(
+                    "Go to https://basedcount-bingo.netlify.app/play and play with the official basedcount_bot bingo card!\n\n"
+                    "Only people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\n"
+                    "Rules:\n* Log in with your Discord account.\n"
+                    "* A card has automatically been generated for you. You don't have to take screenshots of it nor send it in the bingo channel.\n"
+                    "* When someone ticks a box for the first time, a notification will be sent by the bot here on the bingo channel, as well as on the log on the site. You don't have to send a screenshot of the ticked box.\n"
+                    "* Get a bingo by marking off the board whenever certain events happen.\n"
+                    "* No cheesing the card by purposely doing the tiles on the board. It must happen naturally. Light baiting is allowed, but only in forms of social engineering.\n"
+                    "* If it doesn't happen in the basedcount server, it doesn't count.\n"
+                    "* If it doesn't happen in a publicly available channel, it doesn't count.\n"
+                    "* I Exist and the admins get to determine what does or does not count as a hit on the bingo card if it's not obvious.\n"
+                    "* If someone gets a valid bingo, no more squares can be marked unless you noticed you missed a mark before.\n"
+                    "* If more than one people get a bingo at once, it counts as a win for all of them.\n"
+                    "* The current round lasts for one week, starting at the beginning of the round. If seven days have passed without a bingo, then the game is a draw and a new round with new cards begins.\n\n"
+                    f"{leaderboard_message}"
+                )
         return
         
     if event.content is not None:
