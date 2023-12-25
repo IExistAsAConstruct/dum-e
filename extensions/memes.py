@@ -98,6 +98,23 @@ async def authtrumpism(ctx: lightbulb.SlashContext, user: Optional[hikari.User] 
 @meme_plugin.command
 @lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option("user", "The user to ping.", hikari.User, required=False)
+@lightbulb.command("proletariat", "are there any proletariat here?", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def proletariat(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
+    
+    await ctx.respond(
+        f"{user.mention if user else ''} "
+        "are there any proletariat here? im looking to start my own revolution but i could use some help and would arm you handsomely. "
+        "specifically im looking to get started in the international commerce/transport of unlicensed praxis. "
+        "so if you or someone you know has some personal experience with that (preferably ongoing!) "
+        "i could probably come to your house (to pay in factory labour and for ammunition). "
+        "but i do require you to have been involved in some major revolutions and to send me something like a manifesto "
+        "documenting your experience with like evidence that you really were involved in it because im a bit skeptical to do this online"
+    )
+    
+@meme_plugin.command
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option("user", "The user to ping.", hikari.User, required=False)
 @lightbulb.command("postingcontent", "Posting content again that was deemed rule-breaking...", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand)
 async def postingcontent(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
@@ -282,7 +299,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     await message.respond(f"An error occurred: {e}")
                     
                 await message.respond(
-                    "Go to https://basedcount-bingo.netlify.app/play and play with the official basedcount_bot bingo card!\n\n"
+                    "Go to https://bingo.basedcount.com/play and play with the official basedcount_bot bingo card!\n\n"
                     "Only people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\n"
                     "Rules:\n* Log in with your Discord account.\n"
                     "* A card has automatically been generated for you. You don't have to take screenshots of it nor send it in the bingo channel.\n"

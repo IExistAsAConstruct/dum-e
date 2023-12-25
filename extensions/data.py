@@ -39,16 +39,32 @@ async def userinfo(
     assert ctx.guild_id is not None
     
     user = user or ctx.author
-    user = ctx.bot.cache.get_member(ctx.guild_id, user)
+    user = await ctx.app.rest.fetch_member(ctx.guild_id, user)
+    data = list(kek_counter.find())
+    now = datetime.utcnow()
+    seven_days_ago = now - timedelta(days=7)
+    one_month_ago = now - timedelta(days = 30)
+    total_keks = 0
+    keks_last_7_days = 0
+    keks_last_month = 0
     
+    for i, user_data in enumerate(data[0:len(data)]):
+        if user_data["user_id"] == str(user.id):
+            total_keks = user_data["kek_count"]
+            keks_last_7_days = [kek for kek in user_data["keks"] if datetime.fromisoformat(kek["date"]) >= seven_days_ago]
+            keks_last_month = [kek for kek in user_data["keks"] if datetime.fromisoformat(kek["date"]) >= one_month_ago]
+            print(len(keks_last_7_days))
+            print(len(keks_last_month))
+            
     if not user:
         await ctx.respond("That user is not in this server.")
         return
     
     created_at = int(user.created_at.timestamp())
     joined_at = int(user.joined_at.timestamp())
+    user_data = kek_counter.find_one({"user_id": str(user.id)})
     
-    roles = [f"<@&{role}>" for role in user.role_ids if role != ctx.guild_id]
+    #roles = [f"<@&{role}>" for role in user.role_ids if role != ctx.guild_id]
     
     embed = (
         hikari.Embed(
@@ -78,9 +94,19 @@ async def userinfo(
             inline=True,
         )
         .add_field(
-            "Roles",
-            ", ".join(roles) if roles else "No roles",
+            "Kek Count (Total)",
+            f"{total_keks} total keks",
             inline=False,
+        )
+        .add_field(
+            "Kek Count (Week)",
+            f"{len(keks_last_7_days)} total keks in last 7 days",
+            inline=True,
+        )
+        .add_field(
+            "Kek Count (Month)",
+            f"{len(keks_last_month)} total keks in last month",
+            inline=True,
         )
     )
     
@@ -289,7 +315,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
 
                         if channel:
                             # Send congratulatory message
-                            await channel.send(f"{replied_message.author.display_name} reached a based count milestone of {based_count}!")
+                            await self.app.rest.create_message(channel.id, content = f"{replied_message.author.username} reached a based count milestone of {based_count}!")
                             
         if content.startswith("based"):
             messages = await event.app.rest.fetch_messages(channel_id, before=message.id)
@@ -341,7 +367,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
 
                     if channel:
                         # Send congratulatory message
-                        await channel.send(f"{messages.author.display_name} reached a based count milestone of {based_count}!")
+                        await self.app.rest.create_message(channel.id, content = f"{replied_message.author.username} reached a based count milestone of {based_count}!")
             
     
 async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message, leaderboard_channel):
@@ -431,65 +457,79 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
                 "based_count": 0,
             }
             kek_counter.insert_one(user_data)
-
-        # Update the document with kek information
-        kek_counter.update_one(
-            {"user_id": str(message.author.id)},
+            
+        existing_kek = kek_counter.find_one(
             {
-                "$inc": {"kek_count": 1} if kek_type == "kek" else {"kek_count": -1},
-                "$set": {"display_name": member.display_name},
-                "$push": {
-                    "keks": {
+                "user_id": str(message.author.id),
+                "keks": {
+                    "$elemMatch": {
                         "messageLink": message.make_link(event.guild_id),
-                        "date": datetime.utcnow().isoformat(),
                         "reacter_user_id": str(event.user_id),
-                        "reacter_username": user.username,
                         "kek_type": kek_type,
                     }
                 },
-            },
-            upsert=True,
+            }
         )
-        
-        leaderboard_channel = await event.app.rest.fetch_channel(1141830149176836246)
-        
-        await update_leaderboard(event.guild_id, member, user, kek_type, message, leaderboard_channel)
-        await update_rank(str(message.author.id), event.channel_id, user, member, channel)
-        
-        if kek_type == "ANTIkek":
-            user_id = str(event.user_id)
-            antikek_info['user_id'] = user_id
 
-            if antikek_info["count"] >= 3 and (datetime.utcnow() - antikek_info["last_timestamp"]).total_seconds() < 43200:  # 12 hours cooldown
-                print("exceeded antikek limit")
-                # User has exceeded the limit, you can choose to ignore or send a message indicating the limit
-                return
-
-            # Update the ANTIkek count and timestamp for the user
-            antikek_info["count"] += 1
-            antikek_info["last_timestamp"] = datetime.utcnow()
-            antikek_data = [antikek_info]
+        # Update the document with kek information
+        if not existing_kek:
+            kek_counter.update_one(
+                {"user_id": str(message.author.id)},
+                {
+                    "$inc": {"kek_count": 1} if kek_type == "kek" else {"kek_count": -1},
+                    "$set": {"display_name": member.display_name},
+                    "$push": {
+                        "keks": {
+                            "messageLink": message.make_link(event.guild_id),
+                            "date": datetime.utcnow().isoformat(),
+                            "reacter_user_id": str(event.user_id),
+                            "reacter_username": user.username,
+                            "kek_type": kek_type,
+                        }
+                    },
+                },
+                upsert=True,
+            )
+        
+            leaderboard_channel = await event.app.rest.fetch_channel(1141830149176836246)
             
-            chance_of_response = 0.001  # 0.1% chance
-            if random.random() < chance_of_response:
-                channel = reaction.message.channel
-                await channel.send(
-                    "I just dekek'd your comment.\n\n# FAQ\n## What does this mean?\n"
-                    "The amount of keks (laughs) on your leaderboard entry and discord account has decreased by one.\n\n"
-                    "## Why did you do this?\nThere are several reasons I may deem a comment to be unworthy of positive or neutral keks. "
-                    "These include, but are not limited to:\n\n"
-                    "* Rudeness towards other Discorders.\n"
-                    "* Spreading incorrect information,\n"
-                    "* Sarcasm not correctly flagged with a /s.\n\n"
-                    "## Am I banned from the Discord?\nNo - not yet. But you should refrain from making comments like this in the future. "
-                    "Otherwise, I will be forced to issue an additional dekek, which may put your commenting and posting privileges in jeopardy.\n\n"
-                    "## I don't believe my comment deserved a dekek. Can you un-dekek it?\nSure, mistakes happen. But only in exceedingly rare "
-                    "circumstances will I undo a dekek. If you would like to issue an appeal, shoot me a private message explaining what I got wrong. "
-                    "I tend to respond to Discord PMs within several minutes. Do note, however, that over 99.9% of dekek appeals are rejected, and yours "
-                    "is likely no exception.\n\n"
-                    "## How can I prevent this from happening in the future?\nAccept the dekek and move on. But learn from this mistake: your behavior "
-                    "will not be tolerated on discord.com. I will continue to issue dekeks until you improve your conduct. Remember: keks are a privilege, not a right."
-                    )
+            await update_leaderboard(event.guild_id, member, user, kek_type, message, leaderboard_channel)
+            await update_rank(str(message.author.id), event.channel_id, user, member, channel)
+            
+            if kek_type == "ANTIkek":
+                user_id = str(event.user_id)
+                antikek_info['user_id'] = user_id
+
+                if antikek_info["count"] >= 3 and (datetime.utcnow() - antikek_info["last_timestamp"]).total_seconds() < 43200:  # 12 hours cooldown
+                    print("exceeded antikek limit")
+                    # User has exceeded the limit, you can choose to ignore or send a message indicating the limit
+                    return
+
+                # Update the ANTIkek count and timestamp for the user
+                antikek_info["count"] += 1
+                antikek_info["last_timestamp"] = datetime.utcnow()
+                antikek_data = [antikek_info]
+                
+                chance_of_response = 0.001  # 0.1% chance
+                if random.random() < chance_of_response:
+                    channel = reaction.message.channel
+                    await channel.send(
+                        "I just dekek'd your comment.\n\n# FAQ\n## What does this mean?\n"
+                        "The amount of keks (laughs) on your leaderboard entry and discord account has decreased by one.\n\n"
+                        "## Why did you do this?\nThere are several reasons I may deem a comment to be unworthy of positive or neutral keks. "
+                        "These include, but are not limited to:\n\n"
+                        "* Rudeness towards other Discorders.\n"
+                        "* Spreading incorrect information,\n"
+                        "* Sarcasm not correctly flagged with a /s.\n\n"
+                        "## Am I banned from the Discord?\nNo - not yet. But you should refrain from making comments like this in the future. "
+                        "Otherwise, I will be forced to issue an additional dekek, which may put your commenting and posting privileges in jeopardy.\n\n"
+                        "## I don't believe my comment deserved a dekek. Can you un-dekek it?\nSure, mistakes happen. But only in exceedingly rare "
+                        "circumstances will I undo a dekek. If you would like to issue an appeal, shoot me a private message explaining what I got wrong. "
+                        "I tend to respond to Discord PMs within several minutes. Do note, however, that over 99.9% of dekek appeals are rejected, and yours "
+                        "is likely no exception.\n\n"
+                        "## How can I prevent this from happening in the future?\nAccept the dekek and move on. But learn from this mistake: your behavior "
+                        "will not be tolerated on discord.com. I will continue to issue dekeks until you improve your conduct. Remember: keks are a privilege, not a right."
+                        )
         
 async def update_rank(user_id, channel_id, user, member, channel):
     user_data = kek_counter.find_one({"user_id": user_id})
