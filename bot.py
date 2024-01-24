@@ -99,12 +99,18 @@ async def wordsinmymouth(
     attachment: Optional[hikari.Attachment] = None,
     ping: Optional[hikari.User] = None,
 ) -> None:
-
+    owner = await ctx.app.fetch_owner_ids()
+    owner = owner[0]
+    owner = await ctx.app.rest.fetch_user(owner)
     await ctx.app.rest.create_message(
         channel=channel.id,
         content=f"{ping.mention if ping else ''} {message}",
         attachment=attachment if attachment else hikari.UNDEFINED,
         user_mentions=True,
+    )
+    
+    await owner.send(
+        f"{ctx.author.username} sent to <#{channel.id}> this message via DUM-E: \"{message}\""
     )
 
     await ctx.respond(
@@ -161,29 +167,29 @@ async def on_reaction_create(event: hikari.ReactionAddEvent) -> None:
         return
        
     if isinstance(event.guild_id, hikari.Snowflake):
-        try:
+        #try:
             # Fetch the message
-            message = await bot.rest.fetch_message(event.channel_id, event.message_id)
+        message = await bot.rest.fetch_message(event.channel_id, event.message_id)
 
             # Get the emoji that the user added
-            emoji = event.emoji_name
-            emoji_id = event.emoji_id
-            emoji_type = message.reactions
-            for i in emoji_type:
-                emoji_type = i.emoji
+        emoji = event.emoji_name
+        emoji_id = event.emoji_id
+        emoji_type = message.reactions
+        for i in emoji_type:
+            emoji_type = i.emoji
 
             # Add the same reaction as the user
-            if isinstance(emoji_type, hikari.CustomEmoji):
-                await message.add_reaction(emoji, emoji_id)
-            else:
-                await message.add_reaction(emoji)
+        if isinstance(emoji_type, hikari.CustomEmoji):
+            await message.add_reaction(emoji, emoji_id)
+        else:
+            await message.add_reaction(emoji)
                 
-        except hikari.errors.ForbiddenError:
+        #except hikari.errors.ForbiddenError:
             # Bot does not have permission to add reactions
-            pass
-        except hikari.errors.NotFoundError:
+        #    pass
+        #except hikari.errors.NotFoundError:
             # Message not found
-            pass
+        #    pass
 
 if __name__ == "__main__":
     bot.run()

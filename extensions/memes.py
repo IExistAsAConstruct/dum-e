@@ -86,6 +86,32 @@ async def navyseals(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
 @meme_plugin.command
 @lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option("user", "The user to ping.", hikari.User, required=False)
+@lightbulb.command("fallacy", "What the slippery slope did you just say to me you little strawman?", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def fallacy(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
+    
+    await ctx.respond(
+        f"{user.mention if user else ''} "
+        "What the slippery slope did you just say to me you little strawman? "
+        "I'll have you know I graduated top of my class in appealing to emotion, "
+        "and I've been involved in numerous secret raids on loaded questions. "
+        "I am trained in fallacy warfare and I'm the top debater in my entire high school. "
+        "You are nothing to me but just another bandwagon. "
+        "I will attack your character instead of engaging with your argument with precision the likes of which has never been seen before on this site, mark my anecdotes. "
+        "You think you can get away with making logically sound arguments over the Internet? Think again, fucker. As we speak, "
+        "I am contacting my secret network of trolls across the Internet and your IP is being traced right now so you better prepare for our fallacies, maggot. "
+        "The storm that wipes out the pathetic little thing you call logic. You're no fucking scotsman, kid. "
+        "I can be ambiguous anywhere, anytime, and I can derail your discussion in over seven hundred ways, "
+        "and that's just with my false cause. Not only am I extensively trained in irrational argumentation, "
+        "but I have access to the entire arsenal of the r/politics comment section and I will use it to its full extent to wipe your miserable argument of the continent, "
+        "you little Texas sharpshooter. If only you could have known what unholy middle ground your little \"logical\" argument was about to bring down upon you, "
+        "maybe you would have held your fucking burden of proof. But you couldn't, you you didn't, and now you're begging the question, you black or white idiot. "
+        "I will shit ad hominem all over you and you will appeal to nature in it. Tu quoque, kiddo."
+    )
+    
+@meme_plugin.command
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option("user", "The user to ping.", hikari.User, required=False)
 @lightbulb.command("authtrumpism", "auth is just fascism, or as I like to call it, trumpism", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand)
 async def authtrumpism(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
@@ -192,6 +218,26 @@ async def sofunny(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = Non
         "Then I met God, God wasn’t a man or woman, God was two different cubes with different colors and I transcended God because I laughed so hard. "
         "I transcended God into a world of light and laughter. I could not stop laughing, all I could do is laughter now. "
         "I miss my friends, I miss my home I hope that I can see them again but I know that I never will, because I will never stop laughing I will laugh for eternity."
+    )
+    
+@meme_plugin.command
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option("user", "The user to ping.", hikari.User, required=False)
+@lightbulb.command("culture", "We live in entirely different cultures...", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def culture(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
+    
+    await ctx.respond(
+        f"{user.mention if user else ''} "
+        "We live in entirely different cultures, nerd - there are people who simply cannot be reasoned with through words. "
+        "They subscribe to a violent philosophy where might makes right, and civilization is merely the media in which they exert their will, "
+        "and like bacteria in agar will spread that philosophy through their actions alone. Their behavior is not based in logic or reason, "
+        "but based on a flawed view what they think is right. They will act out, take what they want, and enforce this by threat of harm and extortion. "
+        "By doing this they preach their gospel, and it goes like this; I was treated unfairly, so that means I can treat others unfairly. "
+        "Their victims look at the way they were treated, and decide that since nothing bad happened to their perpetrator, then it's okay for them to act the same. "
+        "Calling them out of their behavior always leads to the same response - \"but this other guy did it to me and no one called him out!\", "
+        "as if they believe this absolves them of all responsibility, and if you followed this chain you'd never find the beginning. "
+        "The only way to stop the cyclical nature of violence is to break the chain, either through the latest victim deciding not to add to the cruelty, or through legal retribution and consequences."
     )
     
 @meme_plugin.command
@@ -324,6 +370,11 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 await message.respond("Never worry about falling in love with someone who isn’t right for you. Taiwanese mail-order brides find foreign men like you irresistible!", reply=message)
                 print(f"{event.get_member()} got mail order bride'd")
                 
+        if "meaning" in content or "mean" in content:
+            if random.random() < 0.01:
+                await message.respond("Have you ever spent hours wondering if human cognition were Turing complete, or even what that might mean?", reply=message)
+                print(f"{event.get_member()} got turing complete'd")
+                
         if random.random() < 0.001:
             await message.respond("This is forcing compelled speech!")
             print(f"{event.get_member()} got compelled speech'd")
@@ -332,6 +383,11 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
             responses = ['Fuck you too!', 'I\'m not your sister. Nor your mother.', 'Uno reverse card!']
             response = random.choice(responses)
             await message.respond(response)
+            
+        if 'kill yourself' in content or 'kys' in content or 'delete yourself' in content or 'uninstall yourself' in content:
+            if random.random() < 0.15:
+                response = 'If you or someone you know is struggling with suicidal thoughts, please reach out to the National Suicide Prevention Lifeline at 800-273-TALK (8255). The hotline is available 24/7 and provides free and confidential support to individuals in distress. You can also text 988 to connect with a trained crisis counselor.'
+                await message.respond(response)
             
         if content == 'say hi dum-e':
             await message.respond('Hi, DUM-E!')
@@ -355,6 +411,20 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     await message.respond('I browse using Internet Explorer 9!', reply=message)
                     print(f"{event.get_member()} got browser'd")
                     
+        if 'culture' in content or 'philosophy' in content or 'civilization' in content:
+            if random.random() < 0.01:
+                await message.respond(
+                    "We live in entirely different cultures, nerd - there are people who simply cannot be reasoned with through words. "
+                    "They subscribe to a violent philosophy where might makes right, and civilization is merely the media in which they exert their will, "
+                    "and like bacteria in agar will spread that philosophy through their actions alone. Their behavior is not based in logic or reason, "
+                    "but based on a flawed view what they think is right. They will act out, take what they want, and enforce this by threat of harm and extortion. "
+                    "By doing this they preach their gospel, and it goes like this; I was treated unfairly, so that means I can treat others unfairly. "
+                    "Their victims look at the way they were treated, and decide that since nothing bad happened to their perpetrator, then it's okay for them to act the same. "
+                    "Calling them out of their behavior always leads to the same response - \"but this other guy did it to me and no one called him out!\", "
+                    "as if they believe this absolves them of all responsibility, and if you followed this chain you'd never find the beginning. "
+                    "The only way to stop the cyclical nature of violence is to break the chain, either through the latest victim deciding not to add to the cruelty, or through legal retribution and consequences."
+                )
+                    
         if "drifting" in content or "drift" in content:
             if random.random() < 0.15:
                 file = hikari.File('images/multitrack_drifting.png', filename='multitrack_drifting.png')
@@ -374,10 +444,28 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 print(f"{event.get_member()} got joever'd")
                 
         if "dont care" in content:
-            if random.random() < 0.5:
+            if random.random() < 0.3:
                 file = hikari.File('images/i_care.png', filename='filename.png')
                 await message.respond(file)
                 print(f"{event.get_member()} got cared about")
+                
+        if "metal" in content or "mech" in content:
+            if random.random() < 0.01:
+                await message.respond(
+                    "Are you all happy with what you forced me to do? Do you enjoy this? "
+                    "Now let me tell you, the cultists did not kidnap the mechanic just to make something fuckable, "
+                    "it doesn't have an ass or vagina, you're trying to fuck a metal spine, gun, "
+                    "skull that WILL bite your dick off, or an eye which i will not comment on. Think about yourself for a moment."
+                    )
+                    
+        if "cringe" in content or "based" in content:
+            if random.random() < 0.05:
+                await message.respond(
+                    "Doesn't matter what the press says. Doesn't matter what the politicians or the mobs say. Doesn't matter if the whole country decides that something cringe is something based.\n\n"
+                    "This nation was founded on one principle above all else: The requirement that we stand up for what we believe is based, no matter the odds or the consequences. "
+                    "When the mob and the press and the whole world tell you you're cringe, your job is to plant yourself like a tree beside the river of basedness, "
+                    "and tell the whole world -- ”No, YOU'RE cringe.”"
+                    )
         
         if "swiss" in content or 'switzerland' in content:
             if random.random() < 0.15:
