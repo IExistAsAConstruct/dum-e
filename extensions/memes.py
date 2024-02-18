@@ -444,7 +444,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 print(f"{event.get_member()} got joever'd")
                 
         if "dont care" in content:
-            if random.random() < 0.3:
+            if random.random() < 0.1:
                 file = hikari.File('images/i_care.png', filename='filename.png')
                 await message.respond(file)
                 print(f"{event.get_member()} got cared about")

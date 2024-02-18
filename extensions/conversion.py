@@ -99,7 +99,7 @@ async def length(ctx: lightbulb.Context, from_unit: str, to_unit: str, value: fl
     units = {
         "Meter": 1.093613,
         "Inch": 0.027778,
-        "Feet": 0.333333,
+        "Foot": 0.333333,
         "Yard": 1,
         "Chain": 22,
         "Hand": 0.111112,

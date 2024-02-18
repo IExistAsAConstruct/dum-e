@@ -2,11 +2,14 @@ import os
 from typing import Optional
 from database import db
 from database import collection
+import re
 
 import dotenv
 import hikari
 import lightbulb
 import asyncio
+import requests
+import urllib.parse
 import pymongo
 from pymongo import MongoClient
 from sympy import sympify
@@ -118,13 +121,20 @@ async def wordsinmymouth(
     )
     
 @bot.command
-@lightbulb.option("expression", description="The equation you want to calculate.", type=str)
-@lightbulb.command("calculate", description="Calculate an equation.", pass_options=True)
+@lightbulb.option("query", description="The query you want to ask.", type=str)
+@lightbulb.command("wolfram", description="Ask Wolfram Alpha a query. Limited to 2000 responses a month.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand)
-async def calculate(ctx: lightbulb.SlashContext, expression = str) -> None:
+async def wolfram(ctx: lightbulb.SlashContext, query = str) -> None:
+    api = f"http://api.wolframalpha.com/v1/result?appid=HJVK74-R9VH3R438L"
     try:
-        result = sympify(expression)
-        await ctx.respond(f"{expression} is equal to {result}")
+        query_text = query
+        query = urllib.parse.quote_plus(query)
+        response = api + "&i=" + query + "%3F"
+        result = requests.get(response)
+        #if request.status_code == 200:
+        await ctx.respond(f"Query: {query_text}. Response: {result.text}")
+        #else:
+        #    await ctx.respond(f"Error: Unable to fetch data from the API (Status Code: {response.status_code})")
     except Exception as e:
         await ctx.respond(f"Error: {e}")
 

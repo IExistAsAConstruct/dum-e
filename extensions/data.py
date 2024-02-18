@@ -34,14 +34,14 @@ rank_titles = ["Occasionally Funny", "Jokester", "Stand Up Comedian", "Class Clo
     "user", "The user to get information about.", hikari.User, required=False
 )
 @lightbulb.command("userinfo", "Get info on a server member.", pass_options=True)
-@lightbulb.implements(lightbulb.SlashCommand)
+@lightbulb.implements(lightbulb.SlashCommand, lightbulb.UserCommand)
 async def userinfo(
-    ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None
+    ctx: lightbulb.SlashContext, target: Optional[hikari.User] = None, user: Optional[hikari.User] = None
 ) -> None:
     assert ctx.guild_id is not None
     
     guild = await ctx.app.rest.fetch_guild(ctx.guild_id)
-    user = user or ctx.author
+    user = target or user or ctx.author
     user = await ctx.app.rest.fetch_member(ctx.guild_id, user)
     color = await user.fetch_roles()
     color = color[1]
@@ -61,6 +61,7 @@ async def userinfo(
         if user_data["user_id"] == str(user.id):
             total_keks = user_data["kek_count"]
             based_count = user_data["based_count"]
+            basedbucks = user_data["basedbucks"]
             keks_last_7_days = [kek for kek in user_data["keks"] if datetime.fromisoformat(kek["date"]) >= seven_days_ago]
             keks_last_month = [kek for kek in user_data["keks"] if datetime.fromisoformat(kek["date"]) >= one_month_ago]
             kek_types = user_data["keks"]
@@ -69,6 +70,7 @@ async def userinfo(
                 keks_list += [kek_amount]
             counts = Counter(keks_list)
             kek_amount = counts['kek']
+            rank = user_data['rank']
             antikek_amount = counts['ANTIkek']
             
     if not user:
@@ -84,7 +86,7 @@ async def userinfo(
     embed = (
         hikari.Embed(
             title=f"User Info - {user.display_name}",
-            description=f"ID: '{user.id}'",
+            description=f"**{rank}**",
             colour=color,
             timestamp=datetime.now().astimezone(),
         )
@@ -166,6 +168,11 @@ async def userinfo(
         .add_field(
             "Based Count",
             f"{based_count} total baseds",
+            inline=True,
+        )
+        .add_field(
+            "Basedbucks",
+            f"{basedbucks} Basedbuck/s in the bank",
             inline=True,
         )
     )
@@ -345,6 +352,9 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                         "keks": [],
                         "kek_count": 0,
                         "based_count": 0,
+                        "basedbucks": 500,
+                        "wins": 0,
+                        "losses": 0
                     }
                     kek_counter.insert_one(user_data)
 
@@ -376,6 +386,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                         if channel:
                             # Send congratulatory message
                             await event.app.rest.create_message(channel.id, content = f"{replied_message.author.username} reached a based count milestone of {based_count}!")
+                            return
                             
         if content.startswith("based"):
             messages = await event.app.rest.fetch_messages(channel_id, before=message.id)
@@ -397,6 +408,9 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     "keks": [],
                     "kek_count": 0,
                     "based_count": 0,
+                    "basedbucks": 500,
+                    "wins": 0,
+                    "losses": 0
                 }
                 kek_counter.insert_one(user_data)
 
@@ -553,6 +567,9 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
                 "keks": [],
                 "kek_count": 0,
                 "based_count": 0,
+                "basedbucks": 500,
+                "wins": 0,
+                "losses": 0
             }
             kek_counter.insert_one(user_data)
             
@@ -617,7 +634,7 @@ async def update_rank(user_id, channel_id, user, member, channel):
 
                 if channel:
                     # Send a special message for achieving the very last rank
-                    await channel.send(f"🎉🎉🎉 {user.mention} has shown themselves to be one of the funniest motherfuckers this side of basedcount and is now not just a clown, but The Entire Circus! 🎉🎉🎉")
+                    await channel.send(f"🎉🎉🎉 {member.mention} has shown themselves to be one of the funniest motherfuckers this side of basedcount and is now not just a clown, but The Entire Circus! 🎉🎉🎉")
                     
                 kek_counter.update_one(
                     {"user_id": user_data["user_id"]},
