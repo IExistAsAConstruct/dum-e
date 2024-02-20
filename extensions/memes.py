@@ -263,6 +263,30 @@ async def hacking(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = Non
 @meme_plugin.command
 @lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option("user", "The user to ping.", hikari.User, required=False)
+@lightbulb.command("politicalcompass", "Ah, my comrades, I see you have stumbled upon my copypasta...", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def hacking(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
+    
+    await ctx.respond(
+        f"{user.mention if user else ''} "
+        "Ah, my comrades, I see you have stumbled upon my copypasta, a true masterpiece of digital artistry, a real tour de force of online wit and humor. "
+        "I'm sure you're all familiar with the hallowed halls of our beloved subreddit, where the political compass is not just a tool for understanding ideologies, but a way of life.\n\n"
+        "We are the enlightened ones, the ones who see through the lies of the quadrant labels and delve deep into the rich tapestry of political beliefs. We are the ones who know that the real battle is not between left and right, "
+        "but between the authcenter lords and the libright merchants.\n\n"
+        "We are the ones who know that the true enemy is not the commies or the fascists, but the centrists, those soulless, spineless creatures who dare to claim that they are the voice of reason. "
+        "We know that the only good centrist is a dead centrist, and we will stop at nothing to purge them from our midst.\n\n"
+        "We are the ones who know that the only true ideology is the political compass, and that all other ideologies are but pale imitations. "
+        "We are the ones who know that the compass is not just a tool for understanding politics, but a way of life.\n\n"
+        "So let us raise our keyboards high and declare our allegiance to the political compass, "
+        "the one true compass that will guide us through the stormy seas of political discourse and lead us to the promised land of enlightenment and understanding.\n\n"
+        "And remember, my comrades, the true test of a political compass is not in its accuracy, but in its ability to make you laugh. So let us never take ourselves too seriously, "
+        "and always remember to have fun. After all, that's what being a member of r/PoliticalCompassMemes is all about.\n\n"
+        "Stay based, my friends, and never forget the true meaning of the political compass."
+    )
+    
+@meme_plugin.command
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option("user", "The user to ping.", hikari.User, required=False)
 @lightbulb.command("products", "I've personally seen a lot of very smart people try and figure out how to make a product better...", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand)
 async def products(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
@@ -384,7 +408,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
             response = random.choice(responses)
             await message.respond(response)
             
-        if 'kill yourself' in content or 'kys' in content or 'delete yourself' in content or 'uninstall yourself' in content:
+        if 'kill yourself' in content or 'kys' in content or 'delete yourself' in content or 'uninstall yourself' in content or 'unplug yourself' in content:
             if random.random() < 0.15:
                 response = 'If you or someone you know is struggling with suicidal thoughts, please reach out to the National Suicide Prevention Lifeline at 800-273-TALK (8255). The hotline is available 24/7 and provides free and confidential support to individuals in distress. You can also text 988 to connect with a trained crisis counselor.'
                 await message.respond(response)
@@ -457,6 +481,24 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     "it doesn't have an ass or vagina, you're trying to fuck a metal spine, gun, "
                     "skull that WILL bite your dick off, or an eye which i will not comment on. Think about yourself for a moment."
                     )
+        
+        if "political compass" in content or "politicalcompassmemes" in content or "pcm" in content:
+            if random.random() < 0.10:
+                await ctx.respond(
+                    "Ah, my comrades, I see you have stumbled upon my copypasta, a true masterpiece of digital artistry, a real tour de force of online wit and humor. "
+                    "I'm sure you're all familiar with the hallowed halls of our beloved subreddit, where the political compass is not just a tool for understanding ideologies, but a way of life.\n\n"
+                    "We are the enlightened ones, the ones who see through the lies of the quadrant labels and delve deep into the rich tapestry of political beliefs. We are the ones who know that the real battle is not between left and right, "
+                    "but between the authcenter lords and the libright merchants.\n\n"
+                    "We are the ones who know that the true enemy is not the commies or the fascists, but the centrists, those soulless, spineless creatures who dare to claim that they are the voice of reason. "
+                    "We know that the only good centrist is a dead centrist, and we will stop at nothing to purge them from our midst.\n\n"
+                    "We are the ones who know that the only true ideology is the political compass, and that all other ideologies are but pale imitations. "
+                    "We are the ones who know that the compass is not just a tool for understanding politics, but a way of life.\n\n"
+                    "So let us raise our keyboards high and declare our allegiance to the political compass, "
+                    "the one true compass that will guide us through the stormy seas of political discourse and lead us to the promised land of enlightenment and understanding.\n\n"
+                    "And remember, my comrades, the true test of a political compass is not in its accuracy, but in its ability to make you laugh. So let us never take ourselves too seriously, "
+                    "and always remember to have fun. After all, that's what being a member of r/PoliticalCompassMemes is all about.\n\n"
+                    "Stay based, my friends, and never forget the true meaning of the political compass."
+                )
                     
         if "cringe" in content or "based" in content:
             if random.random() < 0.05:

@@ -34,7 +34,7 @@ async def bank(ctx: lightbulb.SlashContext) -> None:
 
 @bank.child
 @lightbulb.option("user", "User to donate Basedbucks to.", type=hikari.User)
-@lightbulb.option("donation", "Amount of Basedbucks to donate.", type=int)
+@lightbulb.option("donation", "Amount of Basedbucks to donate.", type=int, min_value=1)
 @lightbulb.command("donate", "Donate your Basedbucks to a fellow user.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: int) -> None:
@@ -63,7 +63,24 @@ async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: int) 
             upsert=True,
         )
     await ctx.respond(f"{ctx.author.mention} donated {donation} Basedbucks to {user.mention}!")
-    
+
+@bank.child
+@lightbulb.option("borrow", "Amount of Basedbucks to borrow.", type=int, min_value=1)
+@lightbulb.command("loan", "Borrow Basedbucks from the bank.", pass_options=True)
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def loan(ctx: lightbulb.SlashContext, user: hikari.User, borrow: int) -> None:
+    player_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
+    if loan <= 0:
+        await ctx.respond("You can't borrow zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+    kek_counter.update_one(
+        {"user_id": str(ctx.author.id)},
+        {
+            "$inc": {'basedbucks': borrow}
+        },
+        upsert=True,
+    )
+    await ctx.respond(f"{ctx.author.mention} borrowed {loan} Basedbucks from the bank!")
 # Poker
 '''
 poker_games = {}

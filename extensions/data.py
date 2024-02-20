@@ -568,6 +568,7 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
                 "kek_count": 0,
                 "based_count": 0,
                 "basedbucks": 500,
+                "loan_debt": [],
                 "wins": 0,
                 "losses": 0
             }
