@@ -323,6 +323,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
     user_id = event.author_id
     user = await event.app.rest.fetch_member(event.guild_id, user_id)
     channel_id = event.channel_id
+    replied_message = 0
   
     if event.is_bot:
         return

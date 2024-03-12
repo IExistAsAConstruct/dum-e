@@ -3,11 +3,23 @@ import lightbulb
 import random
 import string
 import gamble
+
+from datetime import datetime
+from datetime import timedelta
+from lightbulb.ext import tasks
 from typing import Optional
 from database import db
 from database import kek_counter
 
 gambling_plugin = lightbulb.Plugin("Gambling")
+
+poker_games = {}
+hosts = []
+poker_instances = {}
+blackjack_instances = {}
+used_game_ids = []
+used_gamba_ids = []
+gamble_instances = {}
 
 @lightbulb.Check
 # Defining the custom check function
@@ -24,7 +36,74 @@ def check_if_broke(player, betting) -> bool:
         print("false")
         return False
 
+def generate_game_id():
+        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
 # Banking
+
+@tasks.task(d=1, auto_start=True)
+async def appreciate_debt():
+    query = {
+        'loan_debt': {'$exists': True, '$ne': []}
+    }
+    # Find documents
+    documents = kek_counter.find(query)
+    for doc in documents:
+        modified = False
+        total_debt_increase = 0
+        for debt in doc['loan_debt']:
+            # Determine the latest date
+            latest_date = max(debt['date'], debt['last_increase'])
+            # Calculate new loan amount if it has been one week since the latest date
+            if (datetime.now() - latest_date).days >= 7:
+                debt['last_increase'] = datetime.now()
+                new_loan_amount = debt['loan amount'] * (1 + debt['apr'])
+                total_debt_increase += new_loan_amount - debt['loan amount']
+                debt['loan amount'] = new_loan_amount
+                doc['total_debt'] += total_debt_increase
+                modified = True
+                
+
+        # If any modification has been made, update the document in the database
+        if modified:
+            kek_counter.update_one({'_id': doc['_id']}, {'$set': {'loan_debt': doc['loan_debt']}})
+            print("data modified")
+'''    debtors = kek_counter.find({"loan_debt": {"$exists": True, "$ne": []}})
+    query = {
+        'based_count.kek_counter.loan_debt': {'$exists': True, '$ne': []}
+    }
+
+    # Find documents
+    result = collection.find(query)
+
+    # Iterate over the results
+    for doc in result:
+        print(doc)
+    for user in debtors:
+        for debt in user['loan_debt']:
+            
+            print(user['loan_debt'])
+            print(debt)
+            one_week_later = user['loan_debt'][debt]['last_increase'] + timedelta(weeks=1) or user['loan_debt'][debt]['date'] + timedelta(weeks=1)
+            if datetime.utcnow() >= one_week_later:
+                debt_increase = user['loan_debt'][debt]['loan amount'] * user['loan_debt'][debt]['apr']
+                kek_counter.update_one(
+                    {"user_id": str(user['user_id'])},
+                    {
+                        "$inc": {'total_debt': debt_increase},
+                        "$set":
+                        {
+                            'loan_debt': {
+                                "date": user['loan_debt'][debt]['date'],
+                                "loan amount": user['loan_debt'][debt]['loan amount'] + debt_increase,
+                                "apr": user['loan_debt'][debt]['apr'],
+                                "last_increase": datetime.utcnow()
+                            },
+                        }
+                            
+                    },
+                    upsert=True,
+                )'''
 
 @gambling_plugin.command
 @lightbulb.command("bank", "Use the bank's services to supplement your finances.")
@@ -34,10 +113,10 @@ async def bank(ctx: lightbulb.SlashContext) -> None:
 
 @bank.child
 @lightbulb.option("user", "User to donate Basedbucks to.", type=hikari.User)
-@lightbulb.option("donation", "Amount of Basedbucks to donate.", type=int, min_value=1)
+@lightbulb.option("donation", "Amount of Basedbucks to donate.", type=float, min_value=1)
 @lightbulb.command("donate", "Donate your Basedbucks to a fellow user.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: int) -> None:
+async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: float) -> None:
     player_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
     if donation > player_data["basedbucks"]:
         await ctx.respond("You don't have enough money to make that kind of donation!", flags=hikari.MessageFlag.EPHEMERAL)
@@ -65,34 +144,56 @@ async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: int) 
     await ctx.respond(f"{ctx.author.mention} donated {donation} Basedbucks to {user.mention}!")
 
 @bank.child
-@lightbulb.option("borrow", "Amount of Basedbucks to borrow.", type=int, min_value=1)
+@lightbulb.option("borrow", "Amount of Basedbucks to borrow.", type=float, min_value=1)
 @lightbulb.command("loan", "Borrow Basedbucks from the bank.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def loan(ctx: lightbulb.SlashContext, user: hikari.User, borrow: int) -> None:
+async def loan(ctx: lightbulb.SlashContext, borrow: float) -> None:
     player_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
-    if loan <= 0:
+    apr = 0.03 if borrow < 5000 else 0.07
+    if borrow <= 0:
         await ctx.respond("You can't borrow zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
         return
     kek_counter.update_one(
         {"user_id": str(ctx.author.id)},
         {
-            "$inc": {'basedbucks': borrow}
+            "$inc": {'basedbucks': borrow},
+            "$inc": {'total_debt': borrow},
+            "$push": {
+                        "loan_debt": {
+                            "date": datetime.utcnow(),
+                            "loan amount": borrow,
+                            "apr": apr,
+                            "last_increase": datetime.utcnow()
+                        }
+                    },
         },
         upsert=True,
+        
     )
-    await ctx.respond(f"{ctx.author.mention} borrowed {loan} Basedbucks from the bank!")
+    await ctx.respond(f"{ctx.author.mention} borrowed {borrow} Basedbucks from the bank!")
+
+@bank.child
+@lightbulb.command("alldebt", "Check how much total debt you have.")
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def check_loan(ctx: lightbulb.SlashContext) -> None:
+    player_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
+    debts = []
+    debt_date = []
+    for data in player_data['loan_debt']:
+        debts.append(data['loan amount'])
+        debt_date.append(data['date'])
+    await ctx.respond(
+        f"{ctx.author.mention}, your total debt is {player_data['total_debt']} Basedbucks.\n"
+        "Your total debts:\n"
+    )
+    i = 1
+    while i <= len(debts):
+        await ctx.app.rest.create_message(ctx.channel_id, content = f'Debt {i} - Debt amount: {debts[i - 1]}, Borrowed at {debt_date[i - 1].strftime("%c")}')
+        i += 1
 # Poker
 '''
-poker_games = {}
-hosts = []
-poker_instances = {}
-blackjack_instances = {}
-used_game_ids = []
-used_gamba_ids = []
-gamble_instances = {}
 
-def generate_game_id():
-        return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
 
 class PokerGame:
     def __init__(self, table_name, host, player_max, bet):
@@ -240,25 +341,20 @@ class Blackjack:
     def add_player(self, player, betting, wager):
         self.players[player] = {'hand': [], 'split_hand': [], 'wager': wager, 'betting': betting, 'doubled_down': False}
     
-    def initial_draw(self):
-        for player in self.players:
-            self.players[player]['hand'].append(self.deck.draw())
-        self.dealerh.append(self.deck.draw())
-        if difficulty == 1:
-            self.offer_double()
-    
-    def second_draw(self):
-        for player in self.players:
-            self.players[player]['hand'].append(self.deck.draw())
-        self.dealerh.append(self.deck.draw())
-        if self.dealerh[1].startswith("A") and difficulty == 1:
+    def draw(self, ctx):
+        for _ in range(2):
+            for player in self.players:
+                self.players[player]['hand'].append(self.deck.draw())
+            self.dealerh.append(self.deck.draw())
+        ctx.respond(
+            "Cards:\n"
+            f"{player.mention}'s hand: {player['hand']}"
+        )
+        if self.dealerh[0].startswith("A") and difficulty == 1:
             self.offer_insurance()
     
-    async def offer_double(self):
-        await ctx.app.rest.create_message(ctx.channel_id, content= "Before getting your second card, would you like to double down your bet? Type !dd or !double to double down, or !continue to refuse.")
-    
     def hit(self,player):
-        self.hand.append(self.deck.draw())
+        self.players[player]['hand'].append(self.deck.draw())
         
     def stand(self):
         self.dealer_play("stand")
@@ -298,6 +394,18 @@ class Blackjack:
 @lightbulb.implements(lightbulb.SlashCommandGroup)
 async def blackjack(ctx: lightbulb.SlashContext) -> None:
     await ctx.respond("invoked blackjack")
+    
+@gambling_plugin.command
+@lightbulb.command("hit", "Get a card.")
+@lightbulb.implements(lightbulb.PrefixCommand)
+async def blackjack(ctx: lightbulb.PrefixContext) -> None:
+    for user in blackjack_instances:
+        if isinstance(ctx.get_channel(), hikari.channels.GuildThreadChannel) and ctx.get_channel() in blackjack_instances[user]['Thread']:
+            table = blackjack_instances[user]['Table']
+            if ctx.author in blackjack_instances[user]['Players']:
+                table.hit(ctx.author)
+        else:
+            await ctx.respond("This command can only be used inside a blackjack thread!", flags=hikari.MessageFlag.EPHEMERAL)
         
 @blackjack.child
 @lightbulb.option("wager", "How much you want to initially bet.", type=int)
@@ -364,7 +472,7 @@ async def join(ctx: lightbulb.SlashContext, ante: int, difficulty: str, betting:
             await ctx.respond("This command can only be used inside a blackjack thread!", flags=hikari.MessageFlag.EPHEMERAL)
     
 @blackjack.child
-@lightbulb.command("close", "Close the table. Must be used in the blackjack table.")
+@lightbulb.command("close", "Close the table. Must be used in your own blackjack table.")
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def close(ctx: lightbulb.SlashContext) -> None:
     if isinstance(ctx.get_channel(), hikari.channels.GuildThreadChannel) and ctx.get_channel() in blackjack_instances[ctx.author.username]["Thread"]:
@@ -405,11 +513,11 @@ async def gamble(ctx: lightbulb.SlashContext) -> None:
 @gamble.child
 @lightbulb.option("bet", "What you are betting on happening.", type=str)
 @lightbulb.option("betting", "What type of currency to bet. Keks affect kek count, Basedbucks are only used for gambling.", type=str, choices=["Keks", "Basedbucks"])
-@lightbulb.option("wager", "How much you wish to wager.", type=int)
+@lightbulb.option("wager", "How much you wish to wager.", type=float)
 @lightbulb.option("choice", "Whether or not you're betting on the thing happening or not.", type=str, choices=["For", "Against"])
 @lightbulb.command("start", "Bet basedbucks or keks on something that might happen.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: int, choice: str) -> None:
+async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: float, choice: str) -> None:
     if not check_if_broke(ctx.author, betting):
         await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
         return
@@ -437,14 +545,11 @@ async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: int,
 
 @gamble.child
 @lightbulb.option("id", "ID of the bet you want to join.", type=str)
-@lightbulb.option("wager", "How much you wish to wager.", type=int)
+@lightbulb.option("wager", "How much you wish to wager.", type=float)
 @lightbulb.option("choice", "Whether or not you're betting on the thing happening or not.", type=str, choices=["For", "Against"])
 @lightbulb.command("join", "Bet basedbucks or keks on a currently placed bet. Currency used depends on the original bet.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def wager_gamble(ctx: lightbulb.Context, id: str, wager: int, choice: str) -> None:
-    if not check_if_broke(ctx.author, betting):
-        await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
-        return
+async def wager_gamble(ctx: lightbulb.Context, id: str, wager: float, choice: str) -> None:
     for ids in gamble_instances:
         if id == ids:
             for betters in gamble_instances[id]["Betters"]:
@@ -452,6 +557,9 @@ async def wager_gamble(ctx: lightbulb.Context, id: str, wager: int, choice: str)
                     await ctx.respond("You already have a wager on this bet!", flags=hikari.MessageFlag.EPHEMERAL)
                     break
                 else:
+                    if not check_if_broke(ctx.author, gamble_instances[id]["Betting"]):
+                        await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
+                        return
                     gamble_instances[id]["Betters"][ctx.author] = {}
                     gamble_instances[id]["Betters"][ctx.author]["Wager"] = wager
                     gamble_instances[id]["Betters"][ctx.author]["Choice"] = choice
@@ -472,18 +580,18 @@ async def wager_gamble(ctx: lightbulb.Context, id: str, wager: int, choice: str)
             
 @gamble.child
 @lightbulb.option("id", "ID of the bet you want to join.", type=str)
-@lightbulb.option("ante", "How much you wish to raise the bet by.", type=int)
+@lightbulb.option("ante", "How much you wish to raise the bet by.", type=float)
 @lightbulb.command("raise", "Raise your bet by a certain amount. Currency used depends on the original bet.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def raise_gamble(ctx: lightbulb.Context, id: str, ante: int) -> None:
-    if not check_if_broke(ctx.author, betting):
-        await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
-        return
+async def raise_gamble(ctx: lightbulb.Context, id: str, ante: float) -> None:
     for ids in gamble_instances:
         if id == ids:
             for betters in gamble_instances[id]["Betters"]:
                 if ctx.author in gamble_instances[id]["Betters"]:
                     gamble_instances[id]["Betters"][ctx.author]["Wager"] += ante
+                    if not check_if_broke(ctx.author, gamble_instances[id]["Betting"]):
+                        await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
+                        return
                     gamble_instances[id]["Pot"] += ante
                     gamble_instances[id]["Believer Pot"] += ante if gamble_instances[id]["Betters"][ctx.author]["Choice"] == "For" else 0
                     gamble_instances[id]["Non-Believer Pot"] += ante if gamble_instances[id]["Betters"][ctx.author]["Choice"] == "Against" else 0
