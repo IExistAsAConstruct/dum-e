@@ -2,7 +2,7 @@ import hikari
 import lightbulb
 import random
 import string
-import gamble
+from enum import Enum
 
 from datetime import datetime
 from datetime import timedelta
@@ -10,6 +10,8 @@ from lightbulb.ext import tasks
 from typing import Optional
 from database import db
 from database import kek_counter
+from database import gambling_list
+from anydeck import AnyDeck
 
 gambling_plugin = lightbulb.Plugin("Gambling")
 
@@ -20,6 +22,21 @@ blackjack_instances = {}
 used_game_ids = []
 used_gamba_ids = []
 gamble_instances = {}
+active_bet_ids = []
+
+def update_active_bet_ids():
+    global active_bet_ids
+    active_bet_ids = [bet["bet_id"] for bet in gambling_list.find({})]
+
+def add_bet_id(bet_id):
+    global active_bet_ids
+    if bet_id not in active_bet_ids:
+        active_bet_ids.append(bet_id)
+
+def remove_bet_id(bet_id):
+    global active_bet_ids
+    if bet_id in active_bet_ids:
+        active_bet_ids.remove(bet_id)
 
 @lightbulb.Check
 # Defining the custom check function
@@ -38,6 +55,15 @@ def check_if_broke(player, betting) -> bool:
 
 def generate_game_id():
         return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        
+def generate_deck(card_values):
+    deck = AnyDeck(shuffled=True,
+        suits=('♣','♦','♥','♠'),
+        cards=('Ace','2','3','4','5','6','7','8','9','10','Jack','Queen','King')
+    )
+    deck.dict_to_value(card_values)
+    return deck
+    
 
 # Banking
 
@@ -59,51 +85,16 @@ async def appreciate_debt():
                 debt['last_increase'] = datetime.now()
                 new_loan_amount = debt['loan amount'] * (1 + debt['apr'])
                 total_debt_increase += new_loan_amount - debt['loan amount']
-                debt['loan amount'] = new_loan_amount
-                doc['total_debt'] += total_debt_increase
+                debt['loan amount'] = round(new_loan_amount, 2)
+                doc['total_debt'] += round(total_debt_increase, 2)
                 modified = True
                 
 
         # If any modification has been made, update the document in the database
         if modified:
             kek_counter.update_one({'_id': doc['_id']}, {'$set': {'loan_debt': doc['loan_debt']}})
+            kek_counter.update_one({'_id': doc['_id']}, {'$set': {'total_debt': doc['total_debt']}})
             print("data modified")
-'''    debtors = kek_counter.find({"loan_debt": {"$exists": True, "$ne": []}})
-    query = {
-        'based_count.kek_counter.loan_debt': {'$exists': True, '$ne': []}
-    }
-
-    # Find documents
-    result = collection.find(query)
-
-    # Iterate over the results
-    for doc in result:
-        print(doc)
-    for user in debtors:
-        for debt in user['loan_debt']:
-            
-            print(user['loan_debt'])
-            print(debt)
-            one_week_later = user['loan_debt'][debt]['last_increase'] + timedelta(weeks=1) or user['loan_debt'][debt]['date'] + timedelta(weeks=1)
-            if datetime.utcnow() >= one_week_later:
-                debt_increase = user['loan_debt'][debt]['loan amount'] * user['loan_debt'][debt]['apr']
-                kek_counter.update_one(
-                    {"user_id": str(user['user_id'])},
-                    {
-                        "$inc": {'total_debt': debt_increase},
-                        "$set":
-                        {
-                            'loan_debt': {
-                                "date": user['loan_debt'][debt]['date'],
-                                "loan amount": user['loan_debt'][debt]['loan amount'] + debt_increase,
-                                "apr": user['loan_debt'][debt]['apr'],
-                                "last_increase": datetime.utcnow()
-                            },
-                        }
-                            
-                    },
-                    upsert=True,
-                )'''
 
 @gambling_plugin.command
 @lightbulb.command("bank", "Use the bank's services to supplement your finances.")
@@ -156,8 +147,7 @@ async def loan(ctx: lightbulb.SlashContext, borrow: float) -> None:
     kek_counter.update_one(
         {"user_id": str(ctx.author.id)},
         {
-            "$inc": {'basedbucks': borrow},
-            "$inc": {'total_debt': borrow},
+            "$inc": {'total_debt': borrow, 'basedbucks': borrow},
             "$push": {
                         "loan_debt": {
                             "date": datetime.utcnow(),
@@ -171,6 +161,43 @@ async def loan(ctx: lightbulb.SlashContext, borrow: float) -> None:
         
     )
     await ctx.respond(f"{ctx.author.mention} borrowed {borrow} Basedbucks from the bank!")
+    
+@bank.child
+@lightbulb.option("repay", "Amount of Basedbucks to repay.", type=float, min_value=1)
+@lightbulb.command("repay", "Repay Basedbucks to the bank.", pass_options=True)
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def repay_loan(ctx: lightbulb.SlashContext, repay: float) -> None:
+    player_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
+    if repay > player_data["basedbucks"]:
+        await ctx.respond("You don't have enough Basedbucks to repay that much!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+    if repay <= 0:
+        await ctx.respond("You can't repay zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+    
+    total_debt = player_data.get("total_debt", 0)
+    if repay > total_debt:
+        await ctx.respond("You're trying to repay more than your total debt!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+    
+    # Iterate through the loan debts in reverse order (latest first)
+    for debt in reversed(player_data["loan_debt"]):
+        if debt["loan amount"] > 0:
+            repayment_amount = min(repay, debt["loan amount"])  # Repay as much as possible from the current debt
+            debt["loan amount"] -= repayment_amount  # Decrease the current debt amount by the repayment
+            repay -= repayment_amount  # Decrease the repayment amount accordingly
+            total_debt -= repayment_amount  # Decrease the total debt
+            if debt["loan amount"] <= 0:
+                player_data["loan_debt"].remove(debt)  # Remove the debt from the list if fully repaid
+            if repay <= 0:
+                break  # Stop if the entire repayment has been allocated
+            
+    kek_counter.update_one(
+        {"user_id": str(ctx.author.id)},
+        {"$set": {"loan_debt": player_data["loan_debt"], "total_debt": total_debt}}
+    )
+    
+    await ctx.respond(f"{ctx.author.mention} repaid {repay} Basedbucks to the bank!")
 
 @bank.child
 @lightbulb.command("alldebt", "Check how much total debt you have.")
@@ -188,8 +215,11 @@ async def check_loan(ctx: lightbulb.SlashContext) -> None:
     )
     i = 1
     while i <= len(debts):
-        await ctx.app.rest.create_message(ctx.channel_id, content = f'Debt {i} - Debt amount: {debts[i - 1]}, Borrowed at {debt_date[i - 1].strftime("%c")}')
+        debt_time = datetime.utcfromtimestamp(debt_date[i - 1].timestamp())
+        debt_time_str = discord.utils.format_dt(debt_time, "f")  # Format datetime to Discord's relative time format
+        await ctx.app.rest.create_message(ctx.channel_id, content = f'Debt {i} - Debt amount: {debts[i - 1]}, Borrowed at {debt_time_str}')
         i += 1
+
 # Poker
 '''
 
@@ -321,60 +351,99 @@ async def games_poker(ctx: lightbulb.Context) -> None:
 '''
 # Blackjack
 
+blackjack_values = {
+    "Ace": 11,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "Jack": 10,
+    "Queen": 10,
+    "King": 10
+}
+
 class Blackjack:
     def __init__(self, table, host, ante, choice):
         self.table = table
         self.players = {}
+        self.players_hand_messages = {}
         self.host = host
         self.dealerh = []
+        self.dealer_hand_message = 0
         self.ante = ante
         self.insurance = 0
         self.insurance_play = False
         self.dealer_blackjack = False
         self.difficulty = 0 if choice == "Simple" else 1
+
         
-    def setup(self):
-        self.deck = gamble.Deck()
-        self.deck = self.deck.shuffle()
-        self.initial()
+    async def setup(self, ctx):
+        self.deck = generate_deck(blackjack_values)
+        await self.draw(ctx)
         
     def add_player(self, player, betting, wager):
-        self.players[player] = {'hand': [], 'split_hand': [], 'wager': wager, 'betting': betting, 'doubled_down': False}
+        self.players[player] = {'hand': [], 'split_hand': [], 'playing_hand': 0, 'wager': wager, 'betting': betting, 'insurance': 0, 'has_split': False, 'doubled_down': False, 'has_insured': False, 'has_stood': False, 'has_blackjack': False}
     
-    def draw(self, ctx):
+    async def draw(self, ctx):
+        await ctx.app.rest.create_message(
+            self.table,
+            "Cards:\n"
+        )
         for _ in range(2):
             for player in self.players:
-                self.players[player]['hand'].append(self.deck.draw())
+                self.players[player]['hand'].append(self.deck.draw())    
             self.dealerh.append(self.deck.draw())
-        ctx.respond(
-            "Cards:\n"
-            f"{player.mention}'s hand: {player['hand']}"
+        for player in self.players:
+            self.players_hand_messages[player] = await ctx.app.rest.create_message(
+                self.table,
+                f"{player.mention}'s hand: {self.players[player]['hand'][0].suit}{self.players[player]['hand'][0].face}, {self.players[player]['hand'][1].suit}{self.players[player]['hand'][1].face}"
+            )
+        dealer_hand = await ctx.app.rest.create_message(
+            self.table,
+            f"Dealer's hand: {self.dealerh[0].suit}{self.dealerh[0].face}, ??"
         )
-        if self.dealerh[0].startswith("A") and difficulty == 1:
-            self.offer_insurance()
+        if self.dealerh[0].face == "Ace" and self.difficulty == 1:
+            await self.offer_insurance(ctx)
     
-    def hit(self,player):
+    def hit(self, player):
         self.players[player]['hand'].append(self.deck.draw())
         
-    def stand(self):
-        self.dealer_play("stand")
+    def stand(self, player):
+        self.players[player]['has_stood'] = True
         
-    def split(self):
-        self.hand2 = self.hand.pop()
+    def split(self, player):
+        self.players[player]['has_split'] = True
+        self.players[player]['split_hand'] = self.players[player]['hand'].pop()
         
-    def double_down(self, bet):
-        self.ante += bet
+    def double_down(self, player, bet):
+        self.players[player]['doubled_down'] = True
+        kek_counter.update_one(
+            {"user_id": str(ctx.author.id)},
+            {
+                "$inc": {f"{'kek_count' if betting == 'Keks' else 'basedbucks'}": wager * -1}
+            },
+            upsert=True,
+        )
+        self.players[player][wager] += self.players[player][wager]
         self.hit()
-        self.dealer_play("double")
+        self.players[player]['has_stood'] = True
         
-    def surrender(self):
+    def surrender(self, player):
         self.ante = self.ante/2
         
-    async def offer_insurance(self):
-        await ctx.app.rest.create_message(ctx.channel_id, content= "The dealer has an Ace. Would you like to bet on some insurance? Type !insure or !sidebet with a value to bet insurance, or !continue to refuse.")
+    async def offer_insurance(self, ctx):
+        await ctx.app.rest.create_message(self.table, content= "The dealer has an Ace. Would you like to bet on some insurance? Type !insure or !sidebet with a value to bet insurance, or !continue to refuse.")
         
-    def insurance(self, bet):
+    def insurance(self, player, bet):
         self.insurance = bet
+        
+    def pass_turn(self, player):
+        pass
         
     def dealer_play(self, choice):
         choice = 0
@@ -398,14 +467,50 @@ async def blackjack(ctx: lightbulb.SlashContext) -> None:
 @gambling_plugin.command
 @lightbulb.command("hit", "Get a card.")
 @lightbulb.implements(lightbulb.PrefixCommand)
-async def blackjack(ctx: lightbulb.PrefixContext) -> None:
-    for user in blackjack_instances:
-        if isinstance(ctx.get_channel(), hikari.channels.GuildThreadChannel) and ctx.get_channel() in blackjack_instances[user]['Thread']:
-            table = blackjack_instances[user]['Table']
-            if ctx.author in blackjack_instances[user]['Players']:
+async def hit(ctx: lightbulb.PrefixContext) -> None:
+    for user, data in blackjack_instances.items():
+        if isinstance(ctx.get_channel(), hikari.channels.GuildThreadChannel) and ctx.get_channel() == data.get("Thread"):
+            table = data.get("Table")
+            if ctx.author in data.get("Players", []):
                 table.hit(ctx.author)
-        else:
-            await ctx.respond("This command can only be used inside a blackjack thread!", flags=hikari.MessageFlag.EPHEMERAL)
+                await ctx.respond(f"{ctx.author.mention} hit and drew a {table.players[ctx.author]['hand'][-1].suit}{table.players[ctx.author]['hand'][-1].face}.")
+                return
+    await ctx.respond("This command can only be used inside a blackjack thread!", flags=hikari.MessageFlag.EPHEMERAL)
+
+@gambling_plugin.command
+@lightbulb.command("stand", "End your turn in blackjack.")
+@lightbulb.implements(lightbulb.PrefixCommand)
+async def stand(ctx: lightbulb.PrefixContext) -> None:
+    for user, data in blackjack_instances.items():
+        if isinstance(ctx.get_channel(), hikari.channels.GuildThreadChannel) and ctx.get_channel() == data.get("Thread"):
+            table = data.get("Table")
+            if ctx.author in data.get("Players", []):
+                table.stand(ctx.author)
+                await ctx.respond(f"{ctx.author.mention} stands and ends their turn.")
+                return
+    await ctx.respond("This command can only be used inside a blackjack thread!", flags=hikari.MessageFlag.EPHEMERAL)
+    
+@gambling_plugin.command
+@lightbulb.command("blackjackhelp", "Learn how to play blackjack.")
+@lightbulb.implements(lightbulb.PrefixCommand, lightbulb.SlashCommand)
+async def help(ctx: lightbulb.SlashContext) -> None:
+    await ctx.respond(
+        "Blackjack is a card game where the goal is to beat the dealer at getting as close to 21 points as possible with your hand.\n"
+        "Each card is worth the value on their face, except for Jacks, Queens, and Kings, which are worth 10 points; and Aces which are worth either 1 or 11 points, whichever is closest to 21 points without going over.\n"
+        "A Blackjack is when you get 21 points total in your hand. A Natural is when you get a Blackjack with your initial hand, consisting of an Ace and a 10 point card. A bust is when you go over 21 points in your hand.\n"
+        "Winning a game gives a normal payout of 1:1. Winning with a Natural gives you a 3:2 payout.\n\n"
+        "Controls:\n"
+        "/blackjack open - Open a Blackjack table.\n"
+        "/blackjack join - Join an open table. *Blackjack threads only.*\n"
+        "/blackjack close - Close your Blackjack table. *Blackjack threads only.*\n"
+        "!hit - Draw a card. *Blackjack threads only.*\n"
+        "!stand - Keep your current hand as is. You can't make any other plays. *Blackjack threads only.*\n"
+        "!split - Split your initial hand into two separate hands. Your second hand is given the same bet as your first hand, and is played separately, as if you have an extra turn. Splits are only possible with an initial hand with identical point values (e.g: a hand with two Aces, a hand with a Jack and Queen). *Blackjack threads only.*\n"
+        "!double - Double down on your initial bet. Double your bet, but only hit once before being forced to stand. *Blackjack threads only.*\n"
+        "!surrender - Surrender your hand instead of playing it. Lose 50% of your bet. *Blackjack threads only.*\n"
+        "!insure/!sidebet [bet amount] - Insure your bet when the dealer draws an Ace. If you believe the dealer's face down card has a value of 10, you can set an insurance bet equal to or less than your original bet. If the dealer has a Blackjack with their initial hand, your insurance wins 2:1. Otherwise, the insurance is lost. *Blackjack threads only.*\n"
+    )
+
         
 @blackjack.child
 @lightbulb.option("wager", "How much you want to initially bet.", type=int)
@@ -413,7 +518,7 @@ async def blackjack(ctx: lightbulb.PrefixContext) -> None:
 @lightbulb.option("betting", "What type of currency to bet. Keks affect kek count, Basedbucks are only used for gambling.", type=str, choices=["Keks", "Basedbucks"])
 @lightbulb.command("open", "Open a table and set up a quick game of blackjack.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def setup(ctx: lightbulb.SlashContext, ante: int, difficulty: str) -> None:
+async def setup(ctx: lightbulb.SlashContext, wager: int, difficulty: str, betting: str) -> None:
     if not check_if_broke(ctx.author, betting):
         await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
         return
@@ -421,12 +526,13 @@ async def setup(ctx: lightbulb.SlashContext, ante: int, difficulty: str) -> None
         message = await ctx.respond("Setting up table...")
         message = await message.message()
         thread = await ctx.app.rest.create_message_thread(ctx.channel_id, message, f"{ctx.author.username}'s Blackjack Table")
-        table = Blackjack(thread, ctx.author, ante, difficulty)
+        table = Blackjack(thread, ctx.author, wager, difficulty)
         blackjack_instances[ctx.author.username] = {}
-        table.add_player(ctx.author)
+        table.add_player(ctx.author, wager, betting)
+        await table.setup(ctx)
         blackjack_instances[ctx.author.username]["Thread"] = thread
         blackjack_instances[ctx.author.username]["Table"] = table
-        blackjack_instances[ctx.author.username]["Players"] = {}
+        blackjack_instances[ctx.author.username]["Players"] = []
         blackjack_instances[ctx.author.username]["Players"].append(ctx.author)
         blackjack_instances[ctx.author.username]["Original Message"] = message
         kek_counter.update_one(
@@ -436,7 +542,7 @@ async def setup(ctx: lightbulb.SlashContext, ante: int, difficulty: str) -> None
             },
             upsert=True,
         )
-        await ctx.app.rest.edit_message(ctx.channel_id, message, "Table created! You can now play blackjack here.")
+        await ctx.app.rest.edit_message(ctx.channel_id, message, "Table created! You can now play blackjack here. Type \"!blackjackhelp\" or \"/blackjackhelp\" for details on how to play blackjack.")
     else:
         await ctx.respond("You already have a table open!", flags=hikari.MessageFlag.EPHEMERAL)
         
@@ -445,7 +551,7 @@ async def setup(ctx: lightbulb.SlashContext, ante: int, difficulty: str) -> None
 @lightbulb.option("betting", "What type of currency to bet. Keks affect kek count, Basedbucks are only used for gambling.", type=str, choices=["Keks", "Basedbucks"])
 @lightbulb.command("join", "Join a table to play a quick game of blackjack. Must be used in the blackjack table.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def join(ctx: lightbulb.SlashContext, ante: int, difficulty: str, betting: int) -> None:
+async def join(ctx: lightbulb.SlashContext, wager: int, betting: str) -> None:
     if not check_if_broke(ctx.author, betting):
         await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
         return
@@ -475,30 +581,33 @@ async def join(ctx: lightbulb.SlashContext, ante: int, difficulty: str, betting:
 @lightbulb.command("close", "Close the table. Must be used in your own blackjack table.")
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def close(ctx: lightbulb.SlashContext) -> None:
-    if isinstance(ctx.get_channel(), hikari.channels.GuildThreadChannel) and ctx.get_channel() in blackjack_instances[ctx.author.username]["Thread"]:
-        message = blackjack_instances[ctx.author.username]["Original Message"]
-        await ctx.app.rest.delete_channel(blackjack_instances[ctx.author.username]["Thread"])
-        await ctx.app.rest.edit_message(message.channel_id, message, "Table deleted. This message will delete itself soon.")
-        await ctx.app.rest.delete_message(message.channel_id, message)
-        del blackjack_instances[ctx.author.username]
-    else:
-        await ctx.respond("This command can only be used inside your blackjack thread!", flags=hikari.MessageFlag.EPHEMERAL)
+    author_username = ctx.author.username
+    if author_username in blackjack_instances:
+        thread = blackjack_instances[author_username].get("Thread")
+        if isinstance(ctx.get_channel(), hikari.channels.GuildThreadChannel) and ctx.get_channel() == thread:
+            message = blackjack_instances[author_username].get("Original Message")
+            await ctx.app.rest.delete_channel(thread)
+            await ctx.app.rest.edit_message(message.channel_id, message, "Table deleted. This message will delete itself soon.")
+            await ctx.app.rest.delete_message(message.channel_id, message)
+            del blackjack_instances[author_username]
+            return
+    await ctx.respond("This command can only be used inside your blackjack thread!", flags=hikari.MessageFlag.EPHEMERAL)
     
 
 # Gamble
 
-def count_for(id):
+def count_for(bet_data):
     believers = []
-    for player in gamble_instances[id]["Betters"]:
-        if gamble_instances[id]["Betters"][player]["Choice"] == "For":
-            believers.append(player)
+    for better in bet_data["betters"]:
+        if better["choice"] == "For":
+            believers.append(better)
     return believers
     
-def count_against(id):
+def count_against(bet_data):
     nonbelievers = []
-    for player in gamble_instances[id]["Betters"]:
-        if gamble_instances[id]["Betters"][player]["Choice"] == "Against":
-            nonbelievers.append(player)
+    for better in bet_data["betters"]:
+        if better["choice"] == "Against":
+            nonbelievers.append(better)
     return nonbelievers
 
 @gambling_plugin.command
@@ -522,18 +631,30 @@ async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: floa
         await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
         return
     gamba_id = generate_game_id()
-    while gamba_id in used_gamba_ids:
+    other_ids = gambling_list.find_one({"bet_id": gamba_id})
+    is_unique = False if other_ids is not None and other_ids == gamba_id else True
+    while not is_unique:
         gamba_id = generate_game_id()
-    gamble_instances[gamba_id] = {}
-    gamble_instances[gamba_id]["Betters"] = {}
-    gamble_instances[gamba_id]["Betters"][ctx.author] = {}
-    gamble_instances[gamba_id]["Bet"] = bet
-    gamble_instances[gamba_id]["Betting"] = betting
-    gamble_instances[gamba_id]["Betters"][ctx.author]["Choice"] = choice
-    gamble_instances[gamba_id]["Pot"] = wager
-    gamble_instances[gamba_id]["Believer Pot"] = wager if choice == "For" else 0
-    gamble_instances[gamba_id]["Non-Believer Pot"] = wager if choice == "Against" else 0
-    gamble_instances[gamba_id]["Betters"][ctx.author]["Wager"] = wager
+        other_ids = gambling_list.find_one({"bet_id": gamba_id})
+        is_unique = False if other_ids is not None and other_ids == gamba_id else True
+    gamble_data = {
+                "bet": bet,
+                "bet_id": gamba_id,
+                "betting": betting,
+                "betters": [
+                    {
+                        "name": ctx.author.username,
+                        "user_id": str(ctx.author.id),
+                        "wager": wager,
+                        "choice": choice
+                    }
+                ],
+                "total_pot": wager,
+                "believer_pot": wager if choice == "For" else 0,
+                "nonbeliever_pot": wager if choice == "Against" else 0
+            }
+    gambling_list.insert_one(gamble_data)
+    add_bet_id(gamba_id)
     kek_counter.update_one(
         {"user_id": str(ctx.author.id)},
         {
@@ -544,39 +665,46 @@ async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: floa
     await ctx.respond(f'{ctx.author.mention} bet {wager} {betting} {"on" if choice == "For" else "against"} "{bet}"! To join in on the bet, use /gamble join with the ID "{gamba_id}".')
 
 @gamble.child
-@lightbulb.option("id", "ID of the bet you want to join.", type=str)
+@lightbulb.option("id", "ID of the bet you want to join.", type=str, autocomplete=True)
 @lightbulb.option("wager", "How much you wish to wager.", type=float)
 @lightbulb.option("choice", "Whether or not you're betting on the thing happening or not.", type=str, choices=["For", "Against"])
 @lightbulb.command("join", "Bet basedbucks or keks on a currently placed bet. Currency used depends on the original bet.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def wager_gamble(ctx: lightbulb.Context, id: str, wager: float, choice: str) -> None:
-    for ids in gamble_instances:
-        if id == ids:
-            for betters in gamble_instances[id]["Betters"]:
-                if ctx.author in gamble_instances[id]["Betters"]:
-                    await ctx.respond("You already have a wager on this bet!", flags=hikari.MessageFlag.EPHEMERAL)
-                    break
-                else:
-                    if not check_if_broke(ctx.author, gamble_instances[id]["Betting"]):
-                        await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
-                        return
-                    gamble_instances[id]["Betters"][ctx.author] = {}
-                    gamble_instances[id]["Betters"][ctx.author]["Wager"] = wager
-                    gamble_instances[id]["Betters"][ctx.author]["Choice"] = choice
-                    gamble_instances[id]["Pot"] += wager
-                    gamble_instances[id]["Believer Pot"] += wager if choice == "For" else 0
-                    gamble_instances[id]["Non-Believer Pot"] += wager if choice == "Against" else 0
-                    kek_counter.update_one(
-                        {"user_id": str(ctx.author.id)},
-                        {
-                            "$inc": {f"{'kek_count' if gamble_instances[id]['Betting'] == 'Keks' else 'basedbucks'}": wager * -1}
-                        },
-                        upsert=True,
-                    )
-                    await ctx.respond(f'{ctx.author.mention} bet {wager} {gamble_instances[id]["Betting"]} {"on" if choice == "For" else "against"} "{gamble_instances[id]["Bet"]}"! To join in on the bet, use /gamble join with the ID "{id}".')
-                break
-        else:
-            await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+    bet_data = gambling_list.find_one({"bet_id": id})
+    if not bet_data:
+        await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+        
+    for better in bet_data["betters"]:
+        if better["name"] == ctx.author.username:
+            await ctx.respond("You already have a wager on this bet!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+    if not check_if_broke(ctx.author, bet_data["betting"]):
+        await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+
+    new_wager = {
+        "name": ctx.author.username,
+        "user_id": str(ctx.author.id),
+        "wager": wager,
+        "choice": choice
+    }
+    gambling_list.update_one(
+        {"bet_id": id},
+        {"$push": {"betters": new_wager},
+         "$inc": {"total_pot": wager,
+                  "believer_pot" if choice == "For" else "nonbeliever_pot": wager}}
+    )
+
+    kek_counter.update_one(
+        {"user_id": str(ctx.author.id)},
+        {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": -wager}},
+        upsert=True
+    )
+
+    await ctx.respond(f'{ctx.author.mention} bet {wager} {bet_data["betting"]} {"on" if choice == "For" else "against"} "{bet_data["bet"]}"! To join in on the bet, use /gamble join with the ID "{id}".')
             
 @gamble.child
 @lightbulb.option("id", "ID of the bet you want to join.", type=str)
@@ -584,32 +712,44 @@ async def wager_gamble(ctx: lightbulb.Context, id: str, wager: float, choice: st
 @lightbulb.command("raise", "Raise your bet by a certain amount. Currency used depends on the original bet.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def raise_gamble(ctx: lightbulb.Context, id: str, ante: float) -> None:
-    for ids in gamble_instances:
-        if id == ids:
-            for betters in gamble_instances[id]["Betters"]:
-                if ctx.author in gamble_instances[id]["Betters"]:
-                    gamble_instances[id]["Betters"][ctx.author]["Wager"] += ante
-                    if not check_if_broke(ctx.author, gamble_instances[id]["Betting"]):
-                        await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
-                        return
-                    gamble_instances[id]["Pot"] += ante
-                    gamble_instances[id]["Believer Pot"] += ante if gamble_instances[id]["Betters"][ctx.author]["Choice"] == "For" else 0
-                    gamble_instances[id]["Non-Believer Pot"] += ante if gamble_instances[id]["Betters"][ctx.author]["Choice"] == "Against" else 0
-                    kek_counter.update_one(
-                        {"user_id": str(ctx.author.id)},
-                        {
-                            "$inc": {f"{'kek_count' if gamble_instances[id]['Betting'] == 'Keks' else 'basedbucks'}": ante * -1}
-                        },
-                        upsert=True,
-                    )
-                    await ctx.respond(f'{ctx.author.mention} raised their bet by {ante}, making their total wager {gamble_instances[id]["Betters"][ctx.author]["Wager"]} {gamble_instances[id]["Betting"]} {"on" if gamble_instances[id]["Betters"][ctx.author]["Choice"] == "For" else "against"} "{gamble_instances[id]["Bet"]}"! To join in on the bet, use /gamble join with the ID "{id}".')
-                    
-                    break
-                else:
-                    await ctx.respond("You don't have a wager on this bet!", flags=hikari.MessageFlag.EPHEMERAL)
-                break
-        else:
-            await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+    bet_data = gambling_list.find_one({"bet_id": id})
+    if not bet_data:
+        await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+    
+    for better in bet_data["betters"]:
+        if better["name"] == ctx.author.username:
+            
+            if not check_if_broke(ctx.author, bet_data["betting"]):
+                await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
+                return
+            
+            better["wager"] += ante
+            
+            bet_data["total_pot"] += ante
+            if better["choice"] == "For":
+                bet_data["believer_pot"] += ante
+            elif better["choice"] == "Against":
+                bet_data["nonbeliever_pot"] += ante
+                
+            kek_counter.update_one(
+                {"user_id": str(ctx.author.id)},
+                {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": -ante}},
+                upsert=True
+            )
+            
+            gambling_list.update_one(
+                {"bet_id": id},
+                {"$set": {"betters": bet_data["betters"],
+                          "total_pot": bet_data["total_pot"],
+                          "believer_pot": bet_data["believer_pot"],
+                          "nonbeliever_pot": bet_data["nonbeliever_pot"]}}
+            )
+            
+            await ctx.respond(f'{ctx.author.mention} raised their bet by {ante}, making their total wager {better["wager"]} {bet_data["betting"]} {"on" if better["choice"] == "For" else "against"} "{bet_data["bet"]}" and the total pot {bet_data["total_pot"]}! To join in on the bet, use /gamble join with the ID "{id}".')
+            return
+        
+    await ctx.respond("You don't have a wager on this bet!", flags=hikari.MessageFlag.EPHEMERAL)
             
 @gamble.child
 @lightbulb.add_checks(lightbulb.owner_only | lightbulb.has_roles(928983928289771560))
@@ -617,23 +757,26 @@ async def raise_gamble(ctx: lightbulb.Context, id: str, ante: float) -> None:
 @lightbulb.command("cancel", "Cancel a currently running bet. Admins and bot owner only.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def cancel_gamble(ctx: lightbulb.Context, id: str) -> None:
-    for ids in gamble_instances:
-        if id == ids:
-            original = gamble_instances[id]["Bet"]
-            for players in gamble_instances[id]["Betters"]:
-                player = await ctx.app.rest.fetch_member(ctx.guild_id, players.id)
-                kek_counter.update_one(
-                        {"user_id": str(player.id)},
-                        {
-                            "$inc": {f"{'kek_count' if gamble_instances[id]['Betting'] == 'Keks' else 'basedbucks'}": gamble_instances[id]["Betters"][players]["Wager"]}
-                        },
-                        upsert=True,
-                    )
-            await ctx.respond(f'Bet with ID {id} deleted! Original bet: "{original}". Wagers have been returned to all betters.')
-            del gamble_instances[id]
-            break
-        else:
-            await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+    bet_data = gambling_list.find_one({"bet_id": id})
+    if not bet_data:
+        await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+        
+    original = bet_data["bet"]
+        
+    for better in bet_data["betters"]:
+        user_id = better["user_id"]
+        wager = better["wager"]
+        kek_counter.update_one(
+            {"user_id": user_id},
+            {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": wager}},
+            upsert=True
+        )
+        
+    await ctx.respond(f'Bet with ID {id} deleted! Original bet: "{original}". Wagers have been returned to all betters.')
+
+    remove_bet_id(bet_data["bet_id"])
+    gambling_list.delete_one({"bet_id": id})
 
 @gamble.child
 @lightbulb.add_checks(lightbulb.owner_only | lightbulb.has_roles(928983928289771560))
@@ -641,99 +784,114 @@ async def cancel_gamble(ctx: lightbulb.Context, id: str) -> None:
 @lightbulb.command("succeed", "End a bet on the side of the believers. Admins and bot owner only.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def win_gamble(ctx: lightbulb.Context, id: str) -> None:
-    for ids in gamble_instances:
-        if id == ids:
-            believer_list = []
-            nonbeliever_list = []
-            nl = '\n'
-            believers = count_for(id)
-            nonbelievers = count_against(id)
-            for player in believers:
-                believer_list.append(player.username)
-            for player in nonbelievers:
-                nonbeliever_list.append(player.username)
-            for players in gamble_instances[id]["Betters"]:
-                if gamble_instances[id]["Betters"][players]["Choice"] == "For":
-                    player = await ctx.app.rest.fetch_member(ctx.guild_id, players.id)
-                    kek_counter.update_one(
-                            {"user_id": str(player.id)},
-                            {
-                                "$inc": {f"{'kek_count' if gamble_instances[id]['Betting'] == 'Keks' else 'basedbucks'}": gamble_instances[id]["Betters"][players]["Wager"] * 1.5 if gamble_instances[id]['Non-Believer Pot'] == 0 else (gamble_instances[id]["Betters"][players]["Wager"] + (gamble_instances[id]['Non-Believer Pot']/len(believers))) * 1.5}
-                            },
-                            upsert=True,
-                        )
-                else:
-                    player = await ctx.app.rest.fetch_member(ctx.guild_id, players)
-                    kek_counter.update_one(
-                            {"user_id": str(player.id)},
-                            {
-                                "$inc": {f"{'kek_count' if gamble_instances[id]['Betting'] == 'Keks' else 'basedbucks'}": gamble_instances[id]["Betters"][players]["Wager"] * -1}
-                            },
-                            upsert=True,
-                        )
-            await ctx.respond(
-                f'Bet "{gamble_instances[id]["Bet"]}" is successful! '
-                f'Believers win {(gamble_instances[id]["Non-Believer Pot"]/len(believers) if len(believers) > 0 and gamble_instances[id]["Non-Believer Pot"] > 0 else gamble_instances[id]["Non-Believer Pot"]) * 1.5 if gamble_instances[id]["Non-Believer Pot"] > 0 else "their original wagers"} '
-                f'{gamble_instances[id]["Betting"] if gamble_instances[id]["Non-Believer Pot"] > 0 else "multiplied by 1.5"}. {"Non-Believers lose their wager." if gamble_instances[id]["Non-Believer Pot"] > 0 else ""}\n\n'
-                f'List of winners (Winnings):\n{"* " + nl.join(player + " (" + str((gamble_instances[id]["Non-Believer Pot"]/len(believers) * 1.5) + gamble_instances[id]["Betters"][players]["Wager"]) + " " + gamble_instances[id]["Betting"] + ")" for player in believer_list) if gamble_instances[id]["Non-Believer Pot"] > 0 else "* " + nl.join(player + " (" + str(gamble_instances[id]["Betters"][players]["Wager"] * 1.5) + " " + gamble_instances[id]["Betting"] + ")" for player in believer_list)}\n'
-                f'List of losers (Losings):\n{"* " + nl.join(player + " (" + str(gamble_instances[id]["Betters"][players]["Wager"] * -1) + " " + gamble_instances[id]["Betting"] + ")" for player in nonbeliever_list) if gamble_instances[id]["Non-Believer Pot"] > 0 else "None."}'
+    bet_data = gambling_list.find_one({"bet_id": id})
+    if not bet_data:
+        await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+    
+    believers = count_for(bet_data)
+    nonbelievers = count_against(bet_data)
+    for better in bet_data["betters"]:
+        if better["choice"] == "For":
+            user_id = better["user_id"]
+            wager = better["wager"]
+            winnings = wager * 1.5 if bet_data["nonbeliever_pot"] == 0 else (wager + (bet_data["nonbeliever_pot"] / len(believers))) * 1.5
+            kek_counter.update_one(
+                {"user_id": user_id},
+                {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": winnings}},
+                upsert=True
             )
-            del gamble_instances[id]
-            break
-        else:
-            await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
-
+            
+    await ctx.respond(
+        f'Bet "{bet_data["bet"]}" is successful! '
+        f'Believers win their original wagers '
+        f'{"plus " if len(believers) > 0 else ""}'
+        f'{bet_data["nonbeliever_pot"]/len(believers) if len(believers) > 0 and bet_data["nonbeliever_pot"] > 0 else bet_data["nonbeliever_pot"] * 1.5 if bet_data["nonbeliever_pot"] > 0 else ""} '
+        f'{bet_data["betting"] if bet_data["nonbeliever_pot"] > 0 else "multiplied by 1.5"}. {"Non-Believers lose their wager." if bet_data["nonbeliever_pot"] > 0 else ""}\n\n'
+        f'List of winners (Winnings):\n{"* ".join(player["name"] + " (" + str((bet_data["nonbeliever_pot"]/len(believers) * 1.5) + player["wager"]) + " " + bet_data["betting"] + ")" for player in believers) if bet_data["nonbeliever_pot"] > 0 else "* ".join(player["name"] + " (" + str(player["wager"] * 1.5) + " " + bet_data["betting"] + ")" for player in believers) if bet_data["nonbeliever_pot"] == 0 and len(believers) > 0 else "None."}\n\n'
+        f'List of losers (Losings):\n{"* ".join(player["name"] + " (" + str(player["wager"] * -1) + " " + bet_data["betting"] + ")" for player in nonbelievers) if bet_data["nonbeliever_pot"] > 0 else "None."}'
+    )
+    
+    remove_bet_id(bet_data["bet_id"])
+    gambling_list.delete_one({"bet_id": id})
+    
 @gamble.child
 @lightbulb.add_checks(lightbulb.owner_only | lightbulb.has_roles(928983928289771560))
-@lightbulb.option("id", "ID of the bet that succeeded.", type=str)
+@lightbulb.option("id", "ID of the bet that failed.", type=str)
 @lightbulb.command("fail", "End a bet on the side of the non-believers. Admins and bot owner only.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def lose_gamble(ctx: lightbulb.Context, id: str) -> None:
-    for ids in gamble_instances:
-        if id == ids:
-            believers = count_for(id)
-            nonbelievers = count_against(id)
-            for players in gamble_instances[id]["Betters"]:
-                if gamble_instances[id]["Betters"][players]["Choice"] == "Against":
-                    player = await ctx.app.rest.fetch_member(ctx.guild_id, players.id)
-                    kek_counter.update_one(
-                            {"user_id": str(player.id)},
-                            {
-                                "$inc": {f"{'kek_count' if gamble_instances[id]['Betting'] == 'Keks' else 'basedbucks'}": gamble_instances[id]["Betters"][players]["Wager"] * 1.5 if gamble_instances[id]['Believer Pot'] == 0 else (gamble_instances[id]["Betters"][players]["Wager"] + (gamble_instances[id]['Believer Pot']/len(nonbelievers))) * 1.5}
-                            },
-                            upsert=True,
-                        )
-                else:
-                    player = await ctx.app.rest.fetch_member(ctx.guild_id, players)
-                    kek_counter.update_one(
-                            {"user_id": str(player.id)},
-                            {
-                                "$inc": {f"{'kek_count' if gamble_instances[id]['Betting'] == 'Keks' else 'basedbucks'}": gamble_instances[id]["Betters"][players]["Wager"] * -1}
-                            },
-                            upsert=True,
-                        )
-            await ctx.respond(
-                f'Bet "{gamble_instances[id]["Bet"]}" is unsuccessful! '
-                f'Non-Believers win {(gamble_instances[id]["Believer Pot"]/len(nonbelievers) if len(nonbelievers) > 0 and gamble_instances[id]["Believer Pot"] > 0 else gamble_instances[id]["Believer Pot"]) * 1.5 if gamble_instances[id]["Believer Pot"] > 0 else "their original wagers"} '
-                f'{gamble_instances[id]["Betting"] if gamble_instances[id]["Believer Pot"] > 0 else "multiplied by 1.5"}. {"Believers lose their wager." if gamble_instances[id]["Non-Believer Pot"] > 0 else ""}\n\n'
-                f'List of winners (Winnings):\n{"* " + nl.join(player + " (" + str((gamble_instances[id]["Believer Pot"]/len(believers) * 1.5) + gamble_instances[id]["Betters"][players]["Wager"]) + " " + gamble_instances[id]["Betting"] + ")" for player in nonbeliever_list) if gamble_instances[id]["Believer Pot"] > 0 else "* " + nl.join(player + " (" + str(gamble_instances[id]["Betters"][players]["Wager"] * 1.5) + " " + gamble_instances[id]["Betting"] + ")" for player in nonbeliever_list)}\n'
-                f'List of losers (Losings):\n{"* " + nl.join(player + " (" + str(gamble_instances[id]["Betters"][players]["Wager"] * -1) + " " + gamble_instances[id]["Betting"] + ")" for player in believer_list) if gamble_instances[id]["Non-Believer Pot"] > 0 else "None."}'
+    bet_data = gambling_list.find_one({"bet_id": id})
+    if not bet_data:
+        await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+        
+    believers = count_for(bet_data)
+    nonbelievers = count_against(bet_data)
+    for better in bet_data["betters"]:
+        if better["choice"] == "Against":
+            user_id = better["user_id"]
+            wager = better["wager"]
+            winnings = wager * 1.5 if bet_data["believer_pot"] == 0 else (wager + (bet_data["believer_pot"] / len(nonbelievers))) * 1.5
+            kek_counter.update_one(
+                {"user_id": user_id},
+                {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": winnings}},
+                upsert=True
             )
-            del gamble_instances[id]
-            break
-        else:
-            await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+            
+    await ctx.respond(
+        f'Bet "{bet_data["bet"]}" is unsuccessful! '
+        f'Non-Believers win their original wagers '
+        f'{"plus " if len(nonbelievers) > 0 else ""}'
+        f'{bet_data["believer_pot"]/len(nonbelievers) if len(nonbelievers) > 0 and bet_data["believer_pot"] > 0 else bet_data["believer_pot"] * 1.5 if bet_data["believer_pot"] > 0 else ""} '
+        f'{bet_data["betting"] if bet_data["believer_pot"] > 0 else "multiplied by 1.5"}. {"Believers lose their wager." if bet_data["believer_pot"] > 0 else ""}\n\n'
+        f'List of winners (Winnings):\n{"* ".join(player["name"] + " (" + str((bet_data["believer_pot"]/len(nonbelievers) * 1.5) + player["wager"]) + " " + bet_data["betting"] + ")" for player in nonbelievers) if bet_data["believer_pot"] > 0 else "* ".join(player["name"] + " (" + str(player["wager"] * 1.5) + " " + bet_data["betting"] + ")" for player in nonbelievers) if bet_data["believer_pot"] == 0 and len(nonbelievers) > 0 else "None."}\n\n'
+        f'List of losers (Losings):\n{"* ".join(player["name"] + " (" + str(player["wager"] * -1) + " " + bet_data["betting"] + ")" for player in believers) if bet_data["believer_pot"] > 0 else "None."}'
+    )
+    
+    remove_bet_id(bet_data["bet_id"])
+    gambling_list.delete_one({"bet_id": id})
             
 @gamble.child
 @lightbulb.command("list", "Get a list of all current bets.")
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def list_gamble(ctx: lightbulb.Context) -> None:
-    games = list(gamble_instances.keys())
-    await ctx.respond("Bets currently active:")
-    for game in games:
-        believers = count_for(game)
-        nonbelievers = count_against(game)
-        await ctx.app.rest.create_message(ctx.channel_id, content = f"Bet ID: {game}, Bet: {gamble_instances[game]['Bet']}, Betting: {gamble_instances[game]['Betting']}, Believers ({len(believers)}): {', '.join(str(player.username) for player in believers)}, Non-Believers ({len(nonbelievers)}): {', '.join(str(player) for player in nonbelievers)}, Pot: {gamble_instances[game]['Pot']} ({gamble_instances[game]['Believer Pot']} Believer Pot) ({gamble_instances[game]['Non-Believer Pot']} Non-Believer Pot)")
+    bets = gambling_list.find({})
+    embed = hikari.Embed(
+        title="Bets currently active:",
+        color=hikari.Color.from_hex_code("#ffa500")
+    )
+    for bet in bets:
+        believers = count_for(bet)
+        nonbelievers = count_against(bet)
+        believers_list = "\n".join([f"• {player['name']}" for player in believers])
+        nonbelievers_list = "\n".join([f"• {player['name']}" for player in nonbelievers])
+        embed.set_footer(
+            text=f"Requested by {ctx.author}",
+            icon=ctx.author.display_avatar_url,
+        )
+        embed.add_field(
+            name=f"Bet ID: {bet['bet_id']}",
+            value=f"**Bet:** {bet['bet']}\n"
+                  f"**Betting:** {bet['betting']}\n",
+            inline=False
+        )
+        embed.add_field(
+            name=f"Believers ({len(believers)}):",
+            value=f"{believers_list if believers_list else 'None'}",
+            inline=True
+        )
+        embed.add_field(
+            name=f"Non-Believers ({len(nonbelievers)}):",
+            value=f"{nonbelievers_list if nonbelievers_list else 'None'}",
+            inline=True
+        )
+        embed.add_field(
+            name="Pot:",
+            value=f"{bet['total_pot']} ({bet['believer_pot']} Believer Pot) ({bet['nonbeliever_pot']} Non-Believer Pot)",
+            inline=False
+        )
+    await ctx.respond(embed=embed)
     
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(gambling_plugin)

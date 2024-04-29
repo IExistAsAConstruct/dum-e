@@ -34,7 +34,7 @@ bot.load_extensions_from("./extensions/")
 @tasks.task(m=6, auto_start=True)
 async def collect_mesages():
     guild = await bot.rest.fetch_guild(826405737093136434)
-    for channel_id in [826405737093136437, 1061281533681475614, 1001391150705418300, 1119261381745709127, 934755735311638599, 1062553300899217478, 1064690093438283886, 1087215587031257138, 1121479899841044510, 1147008618894471188]:
+    for channel_id in [826405737093136437, 1061281533681475614, 1001391150705418300, 1119261381745709127, 934755735311638599, 1062553300899217478, 1064690093438283886, 1087215587031257138, 1121479899841044510, 1147008618894471188, 1227892062222024744]:
         
         channel = await bot.rest.fetch_channel(channel_id)
         
@@ -72,8 +72,6 @@ async def collect_mesages():
                         "channel_name": channel.name,
                     }
                     collection.insert_one(message_data)
-                    # Insert or update the document in MongoDB
-                #    await collection.replace_one({"message_id": message_data["message_id"]}, message_data, upsert=True)
             
         
 @bot.command

@@ -6,7 +6,6 @@ import asyncio
 import requests
 import hikari
 import lightbulb
-
 meme_plugin = lightbulb.Plugin("Memes")
 
 target_user_id = 146996859183955968
@@ -18,6 +17,37 @@ def ordinal(number):
         suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(number % 10, 'th')
     return f"{number}{suffix}"
 
+'''
+Type is a string with two options: "Respond" and "Create".
+
+I do this so that I can choose between ctx.respond and ctx.app.rest.create_message
+
+Why not do something simpler and with less if-else's? Because fuck you
+'''
+async def send_message_capital_or_no(ctx, channel, message, type, ephemeral):
+    if channel.id == 1119261381745709127:
+        if type == "Respond":
+            if ephemeral is True:
+                await ctx.respond(message.upper(), flags=hikari.MessageFlag.EPHEMERAL)
+            else:
+                await ctx.respond(message.upper())
+        elif type == "Create":
+            if ephemeral is True:
+                await ctx.app.rest.create_message(ctx.channel_id, message.upper(), flags=hikari.MessageFlag.EPHEMERAL)
+            else:
+                await ctx.app.rest.create_message(ctx.channel_id, message.upper())
+    else:
+        if type == "Respond":
+            if ephemeral is True:
+                await ctx.respond(message, flags=hikari.MessageFlag.EPHEMERAL)
+            else:
+                await ctx.respond(message)
+        elif type == "Create":
+            if ephemeral is True:
+                await ctx.app.rest.create_message(ctx.channel_id, message, flags=hikari.MessageFlag.EPHEMERAL)
+            else:
+                await ctx.app.rest.create_message(ctx.channel_id, message)
+
 @meme_plugin.command
 @lightbulb.app_command_permissions(dm_enabled=False)
 @lightbulb.option("user", "The user to ping.", hikari.User, required=False)
@@ -25,14 +55,18 @@ def ordinal(number):
 @lightbulb.implements(lightbulb.SlashCommand)
 async def balloon(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
     
-    await ctx.respond(
+    await send_message_capital_or_no(
+        ctx,
+        ctx.get_channel(),
         f"{user.mention if user else ''} "
         "What's wrong with you're an idiot? You're a complete lying useless piece of shit. You'll never learn a lesson from my useless words. You don't even deserve another chance. "
         "Congratulations, you've earned my useless words, and today I'll teach you the unironic skill of throwing words into air, and tomorrow I'm going to teach you how to throw them in a balloon. "
         "Honestly, I hate the name balloon, but your dad made a nice name for herself. Just go through the instructions and you’ll be fine.\n\n"
         "The only problem is that, now that you've accomplished your task, the balloon will stop working. So instead of telling me you can't throw words into space if you don't stop working, "
         "tell me where you're going with the balloon, and that's exactly what my mom did.\n\n"
-        "The balloon will stop working if you don't stop working."
+        "The balloon will stop working if you don't stop working.",
+        "Respond",
+        False
     )
         
 @meme_plugin.command
@@ -42,7 +76,9 @@ async def balloon(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = Non
 @lightbulb.implements(lightbulb.SlashCommand)
 async def toiletbed(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
     
-    await ctx.respond(
+    await send_message_capital_or_no(
+        ctx,
+        ctx.get_channel(),
         f"{user.mention if user else ''} "
         "I know that some people might think it's weird that I live in my toiletbed and also happen to be a moderator on the PCM sub, but let me tell you, it's the best thing ever! "
         "I get to play video games, watch anime, and be in charge of all the other users on the server, all the while living in the comfort of my toiletbed.\n\n"
@@ -56,7 +92,8 @@ async def toiletbed(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
         "Plus, I'm close to the laundry room so I can keep my clothes clean and impress my online friends.\n\n"
         "All in all, being a subreddit moderator is the best thing ever and I wouldn't trade it for anything, even if I do happen to be living in my toiletbed. "
         "It's not the most glamorous life, but it's mine and I make the best of it. "
-        "So, if you happen to be on our PCM subreddit, know that there's a toiletbed-dwelling moderator, who also happen to be a anime and Mountain Dew enthusiast, a bit socially awkward, probably never had a real-life girlfriend, is just a big kid at heard and happen to be a neckbeard, keeping an eye on things."
+        "So, if you happen to be on our PCM subreddit, know that there's a toiletbed-dwelling moderator, who also happen to be a anime and Mountain Dew enthusiast, a bit socially awkward, probably never had a real-life girlfriend, is just a big kid at heard and happen to be a neckbeard, keeping an eye on things.",
+        False
     )
     
 @meme_plugin.command
@@ -66,7 +103,9 @@ async def toiletbed(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
 @lightbulb.implements(lightbulb.SlashCommand)
 async def navyseals(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
     
-    await ctx.respond(
+    await send_message_capital_or_no(
+        ctx,
+        ctx.get_channel(),
         f"{user.mention if user else ''} "
         "What the fuck did you just fucking say about me, you little bitch? " 
         "I'll have you know I graduated top of my class in the Navy Seals, and I've been involved in numerous secret raids on Al-Quaeda, and I have over 300 confirmed kills. "
@@ -80,7 +119,8 @@ async def navyseals(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
         "and I will use it to its full extent to wipe your miserable ass off the face of the continent, you little shit. "
         "If only you could have known what unholy retribution your little \"clever\" comment was about to bring down upon you, maybe you would have held your fucking tongue. "
         "But you couldn't, you didn't, and now you're paying the price, you goddamn idiot. "
-        "I will shit fury all over you and you will drown in it. You're fucking dead, kiddo."
+        "I will shit fury all over you and you will drown in it. You're fucking dead, kiddo.",
+        False
     )
     
 @meme_plugin.command
@@ -90,7 +130,9 @@ async def navyseals(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
 @lightbulb.implements(lightbulb.SlashCommand)
 async def fallacy(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
     
-    await ctx.respond(
+    await send_message_capital_or_no(
+        ctx,
+        ctx.get_channel(),
         f"{user.mention if user else ''} "
         "What the slippery slope did you just say to me you little strawman? "
         "I'll have you know I graduated top of my class in appealing to emotion, "
@@ -106,7 +148,8 @@ async def fallacy(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = Non
         "but I have access to the entire arsenal of the r/politics comment section and I will use it to its full extent to wipe your miserable argument of the continent, "
         "you little Texas sharpshooter. If only you could have known what unholy middle ground your little \"logical\" argument was about to bring down upon you, "
         "maybe you would have held your fucking burden of proof. But you couldn't, you you didn't, and now you're begging the question, you black or white idiot. "
-        "I will shit ad hominem all over you and you will appeal to nature in it. Tu quoque, kiddo."
+        "I will shit ad hominem all over you and you will appeal to nature in it. Tu quoque, kiddo.",
+        False
     )
     
 @meme_plugin.command
@@ -369,7 +412,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     await message.respond(f"An error occurred: {e}")
                     
                 await message.respond(
-                    "Go to https://bingo.basedcount.com/play and play with the official basedcount_bot bingo card!\n\n"
+                    "Go to https://bingo.basedcount.com/ and play with the official basedcount_bot bingo card!\n\n"
                     "Only people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\n"
                     "Rules:\n* Log in with your Discord account.\n"
                     "* A card has automatically been generated for you. You don't have to take screenshots of it nor send it in the bingo channel.\n"
@@ -447,6 +490,25 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     "Calling them out of their behavior always leads to the same response - \"but this other guy did it to me and no one called him out!\", "
                     "as if they believe this absolves them of all responsibility, and if you followed this chain you'd never find the beginning. "
                     "The only way to stop the cyclical nature of violence is to break the chain, either through the latest victim deciding not to add to the cruelty, or through legal retribution and consequences."
+                )
+        
+        if 'toilet' in content or 'toiletbed' in content or 'pcm' in content or 'mod' in content or 'reddit' in content:
+            if random.random() < 0.01:
+                await message.respond(
+                    f"{user.mention if user else ''} "
+                    "I know that some people might think it's weird that I live in my toiletbed and also happen to be a moderator on the PCM sub, but let me tell you, it's the best thing ever! "
+                    "I get to play video games, watch anime, and be in charge of all the other users on the server, all the while living in the comfort of my toiletbed.\n\n"
+                    "I've got my gaming setup down here, my computer where I can keep an eye on the PCM server, a mini fridge stocked with mountain Dew and Doritos, and of course my mom's home-cooked meals. "
+                    "Plus I've got a comfy bet and all the snacks I could want, and let's be real, what more could a guy want?\n\n"
+                    "Being a moderator is a full-time job. and I am always on the lookout for rule-breakers and trolls. "
+                    "I spend hours on the sub, making sure that everyone is following the rules and that everyone is having a good time- And if they don't follow the rules, I'll just kick them out. "
+                    "It's so cool to have that kind of power.\n\n"
+                    "But, living in the toiletbed does have its perks. "
+                    "For one, I don't have to worry about noise levels or being too loud, and my mom is always around to bring me food and drinks. "
+                    "Plus, I'm close to the laundry room so I can keep my clothes clean and impress my online friends.\n\n"
+                    "All in all, being a subreddit moderator is the best thing ever and I wouldn't trade it for anything, even if I do happen to be living in my toiletbed. "
+                    "It's not the most glamorous life, but it's mine and I make the best of it. "
+                    "So, if you happen to be on our PCM subreddit, know that there's a toiletbed-dwelling moderator, who also happen to be a anime and Mountain Dew enthusiast, a bit socially awkward, probably never had a real-life girlfriend, is just a big kid at heard and happen to be a neckbeard, keeping an eye on things."
                 )
                     
         if "drifting" in content or "drift" in content:
