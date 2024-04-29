@@ -25,8 +25,8 @@ antikek_info = {"user_id": None, "count": 0, "last_timestamp": None}
 antikek_data = []
 user_based_cooldown = {}
 antikek_limit = False
-keks_for_next_rank = [1, 10, 25, 40, 100, 150, 200, 350, 550, 700, 1000]  # Add more thresholds as needed
-rank_titles = ["Occasionally Funny", "Jokester", "Stand Up Comedian", "Class Clown", "Amateur Clown", "Professional Clown", "Stand Up Comedian But Funny", "Kekw Collector", "Master of The Funny:tm:", "Head Clown", "The Entire Circus"]
+keks_for_next_rank = [1, 10, 25, 40, 100, 150, 200, 350, 550, 700, 1000, 2000]  # Add more thresholds as needed
+rank_titles = ["Occasionally Funny", "Jokester", "Stand Up Comedian", "Class Clown", "Amateur Clown", "Professional Clown", "Stand Up Comedian But Funny", "Kekw Collector", "Master of The Funny:tm:", "Head Clown", "The Entire Circus", "Planet of Clownery"]
 
 @data_plugin.command
 @lightbulb.app_command_permissions(dm_enabled=False)
@@ -301,7 +301,7 @@ async def bingo(ctx: lightbulb.Context) -> None:
         await ctx.respond(f"An error occurred: {e}")
         
     await ctx.respond(
-        "Go to https://basedcount-bingo.netlify.app/play and play with the official basedcount_bot bingo card!\n\n"
+        "Go to https://bingo.basedcount.com/ and play with the official basedcount_bot bingo card!\n\n"
         "Only people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\n"
         "Rules:\n* Log in with your Discord account.\n"
         "* A card has automatically been generated for you. You don't have to take screenshots of it nor send it in the bingo channel.\n"
@@ -323,7 +323,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
     user_id = event.author_id
     user = await event.app.rest.fetch_member(event.guild_id, user_id)
     channel_id = event.channel_id
-    replied_message = 0
+    replied_message = None
   
     if event.is_bot:
         return
@@ -354,8 +354,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                         "kek_count": 0,
                         "based_count": 0,
                         "basedbucks": 500,
-                        "wins": 0,
-                        "losses": 0
+                        "loan_debt": []
                     }
                     kek_counter.insert_one(user_data)
 
@@ -410,8 +409,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     "kek_count": 0,
                     "based_count": 0,
                     "basedbucks": 500,
-                    "wins": 0,
-                    "losses": 0
+                    "loan_debt": []
                 }
                 kek_counter.insert_one(user_data)
 
@@ -569,9 +567,7 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
                 "kek_count": 0,
                 "based_count": 0,
                 "basedbucks": 500,
-                "loan_debt": [],
-                "wins": 0,
-                "losses": 0
+                "loan_debt": []
             }
             kek_counter.insert_one(user_data)
             
@@ -627,9 +623,27 @@ async def update_rank(user_id, channel_id, user, member, channel):
         
         if kek_count == threshold:
             new_rank = title
+            
+            if new_rank == rank_titles[-1]:
+                # Get the user and channel objects
+            #    user = await bot.rest.fetch_user(user_id)
+            #    channel = await bot.rest.fetch_channel(channel_id)
+
+                if channel:
+                    # Send a special message for achieving the very last rank
+                    await channel.send(f"🎉🎉🎉 {member.mention} has exceeded clownery of the circus kind, and is no longer just the entire circus, an entire Planet of Clownery! 🎉🎉🎉")
+                    
+                kek_counter.update_one(
+                    {"user_id": user_data["user_id"]},
+                    {"$set": {"rank": new_rank}},
+                )
+                
+                rank_up = True
+                
+                break
 
             # Check if the user has reached the very last rank
-            if new_rank == rank_titles[-1]:
+            if new_rank == rank_titles[-2]:
                 # Get the user and channel objects
             #    user = await bot.rest.fetch_user(user_id)
             #    channel = await bot.rest.fetch_channel(channel_id)
