@@ -2,10 +2,12 @@ import hikari
 import lightbulb
 import random
 import string
+import discord
 from enum import Enum
 
-from datetime import datetime
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
+import parsedatetime
+from dateutil import parser as dateutil_parser
 from lightbulb.ext import tasks
 from typing import Optional
 from database import db
@@ -132,7 +134,7 @@ async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: float
             },
             upsert=True,
         )
-    await ctx.respond(f"{ctx.author.mention} donated {donation} Basedbucks to {user.mention}!")
+    await ctx.respond(f"{ctx.author.mention} donated {donation} {'Basedbucks' if donation != 1 else 'Basedbuck'} to {user.mention}!")
 
 @bank.child
 @lightbulb.option("borrow", "Amount of Basedbucks to borrow.", type=float, min_value=1)
@@ -168,6 +170,7 @@ async def loan(ctx: lightbulb.SlashContext, borrow: float) -> None:
 @lightbulb.implements(lightbulb.SlashSubCommand)
 async def repay_loan(ctx: lightbulb.SlashContext, repay: float) -> None:
     player_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
+    repay_value = repay
     if repay > player_data["basedbucks"]:
         await ctx.respond("You don't have enough Basedbucks to repay that much!", flags=hikari.MessageFlag.EPHEMERAL)
         return
@@ -180,24 +183,23 @@ async def repay_loan(ctx: lightbulb.SlashContext, repay: float) -> None:
         await ctx.respond("You're trying to repay more than your total debt!", flags=hikari.MessageFlag.EPHEMERAL)
         return
     
-    # Iterate through the loan debts in reverse order (latest first)
     for debt in reversed(player_data["loan_debt"]):
         if debt["loan amount"] > 0:
-            repayment_amount = min(repay, debt["loan amount"])  # Repay as much as possible from the current debt
-            debt["loan amount"] -= repayment_amount  # Decrease the current debt amount by the repayment
-            repay -= repayment_amount  # Decrease the repayment amount accordingly
-            total_debt -= repayment_amount  # Decrease the total debt
+            repayment_amount = min(repay, debt["loan amount"])  
+            debt["loan amount"] -= repayment_amount  
+            repay -= repayment_amount  
+            total_debt -= repayment_amount 
             if debt["loan amount"] <= 0:
-                player_data["loan_debt"].remove(debt)  # Remove the debt from the list if fully repaid
+                player_data["loan_debt"].remove(debt) 
             if repay <= 0:
-                break  # Stop if the entire repayment has been allocated
+                break
             
     kek_counter.update_one(
         {"user_id": str(ctx.author.id)},
         {"$set": {"loan_debt": player_data["loan_debt"], "total_debt": total_debt}}
     )
     
-    await ctx.respond(f"{ctx.author.mention} repaid {repay} Basedbucks to the bank!")
+    await ctx.respond(f"{ctx.author.mention} repaid {repay_value} Basedbucks to the bank!")
 
 @bank.child
 @lightbulb.command("alldebt", "Check how much total debt you have.")
@@ -209,16 +211,21 @@ async def check_loan(ctx: lightbulb.SlashContext) -> None:
     for data in player_data['loan_debt']:
         debts.append(data['loan amount'])
         debt_date.append(data['date'])
-    await ctx.respond(
-        f"{ctx.author.mention}, your total debt is {player_data['total_debt']} Basedbucks.\n"
-        "Your total debts:\n"
+
+    embed = hikari.Embed(
+        title=f"{ctx.author.username}'s Total Debt",
+        description=f"Total Debt: {player_data['total_debt']} Basedbucks"
     )
-    i = 1
-    while i <= len(debts):
-        debt_time = datetime.utcfromtimestamp(debt_date[i - 1].timestamp())
-        debt_time_str = discord.utils.format_dt(debt_time, "f")  # Format datetime to Discord's relative time format
-        await ctx.app.rest.create_message(ctx.channel_id, content = f'Debt {i} - Debt amount: {debts[i - 1]}, Borrowed at {debt_time_str}')
-        i += 1
+
+    for i, (debt_amount, debt_time) in enumerate(zip(debts, debt_date), start=1):
+        debt_time_str = discord.utils.format_dt(debt_time, "f") 
+        embed.add_field(
+            name=f"Debt {i}",
+            value=f"Amount: {debt_amount}\nBorrowed at: {debt_time_str}",
+            inline=False
+        )
+
+    await ctx.respond(embed=embed)
 
 # Poker
 '''
@@ -387,7 +394,12 @@ class Blackjack:
         await self.draw(ctx)
         
     def add_player(self, player, betting, wager):
-        self.players[player] = {'hand': [], 'split_hand': [], 'playing_hand': 0, 'wager': wager, 'betting': betting, 'insurance': 0, 'has_split': False, 'doubled_down': False, 'has_insured': False, 'has_stood': False, 'has_blackjack': False}
+        self.players[player] = {'hand': [], 'split_hand': [], 'playing_hand': 0, 'split_playing_hand': 0, 'wager': wager, 'betting': betting, 'insurance': 0, 'has_split': False, 'doubled_down': False, 'has_insured': False, 'has_stood': False, 'has_blackjack': False}
+        
+    def set_value(self, player):
+        self.players[player]['playing_hand'] = 0
+        for card in self.players[player]['hand']:
+            self.players[player]['playing_hand'] += card.value
     
     async def draw(self, ctx):
         await ctx.app.rest.create_message(
@@ -396,7 +408,8 @@ class Blackjack:
         )
         for _ in range(2):
             for player in self.players:
-                self.players[player]['hand'].append(self.deck.draw())    
+                self.players[player]['hand'].append(self.deck.draw())
+                set_value(player)
             self.dealerh.append(self.deck.draw())
         for player in self.players:
             self.players_hand_messages[player] = await ctx.app.rest.create_message(
@@ -412,6 +425,7 @@ class Blackjack:
     
     def hit(self, player):
         self.players[player]['hand'].append(self.deck.draw())
+        set_value(player)
         
     def stand(self, player):
         self.players[player]['has_stood'] = True
@@ -624,12 +638,44 @@ async def gamble(ctx: lightbulb.SlashContext) -> None:
 @lightbulb.option("betting", "What type of currency to bet. Keks affect kek count, Basedbucks are only used for gambling.", type=str, choices=["Keks", "Basedbucks"])
 @lightbulb.option("wager", "How much you wish to wager.", type=float)
 @lightbulb.option("choice", "Whether or not you're betting on the thing happening or not.", type=str, choices=["For", "Against"])
+@lightbulb.option("deadline", "When the bet ends and resolution begins (e.g., '2024-06-01 15:00' or 'next Friday').", type=str)
 @lightbulb.command("start", "Bet basedbucks or keks on something that might happen.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: float, choice: str) -> None:
+async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: float, choice: str, deadline: str) -> None:
     if not check_if_broke(ctx.author, betting):
         await ctx.respond("You're in the red! You'll need to get some money first before you can go putting yourself in more debt!", flags=hikari.MessageFlag.EPHEMERAL)
         return
+    
+    user_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
+    if user_data and user_data.get("kekbanned", False) and betting == "Keks":
+        dm_channel = await ctx.app.rest.create_dm_channel(ctx.author.id)
+        await ctx.app.rest.create_message(
+            channel=dm_channel.id,
+            content=f"Sorry {ctx.author.mention}, you are banned from participating in the kekonomy.",
+        )
+        return
+
+    # Parse the deadline using parsedatetime
+    cal = parsedatetime.Calendar()
+    time_struct, parse_status = cal.parse(deadline)
+    
+    if parse_status == 0:
+        try:
+            deadline_dt = dateutil_parser.parse(deadline)
+        except ValueError:
+            await ctx.respond("Invalid date format! Please try again with a valid date.", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+    else:
+        deadline_dt = datetime(*time_struct[:6])
+
+    # Ensure deadline_dt is timezone-aware
+    if deadline_dt.tzinfo is None:
+        deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
+
+    if deadline_dt <= datetime.now(timezone.utc):
+        await ctx.respond("The deadline must be in the future!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+
     gamba_id = generate_game_id()
     other_ids = gambling_list.find_one({"bet_id": gamba_id})
     is_unique = False if other_ids is not None and other_ids == gamba_id else True
@@ -637,24 +683,29 @@ async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: floa
         gamba_id = generate_game_id()
         other_ids = gambling_list.find_one({"bet_id": gamba_id})
         is_unique = False if other_ids is not None and other_ids == gamba_id else True
+    
     gamble_data = {
-                "bet": bet,
-                "bet_id": gamba_id,
-                "betting": betting,
-                "betters": [
-                    {
-                        "name": ctx.author.username,
-                        "user_id": str(ctx.author.id),
-                        "wager": wager,
-                        "choice": choice
-                    }
-                ],
-                "total_pot": wager,
-                "believer_pot": wager if choice == "For" else 0,
-                "nonbeliever_pot": wager if choice == "Against" else 0
+        "bet": bet,
+        "bet_id": gamba_id,
+        "bet_date": datetime.now(timezone.utc),
+        "deadline": deadline_dt,
+        "betting": betting,
+        "betters": [
+            {
+                "name": ctx.author.username,
+                "user_id": str(ctx.author.id),
+                "wager": wager,
+                "choice": choice
             }
+        ],
+        "total_pot": wager,
+        "believer_pot": wager if choice == "For" else 0,
+        "nonbeliever_pot": wager if choice == "Against" else 0
+    }
+    
     gambling_list.insert_one(gamble_data)
     add_bet_id(gamba_id)
+    
     kek_counter.update_one(
         {"user_id": str(ctx.author.id)},
         {
@@ -662,10 +713,11 @@ async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: floa
         },
         upsert=True,
     )
-    await ctx.respond(f'{ctx.author.mention} bet {wager} {betting} {"on" if choice == "For" else "against"} "{bet}"! To join in on the bet, use /gamble join with the ID "{gamba_id}".')
+    
+    await ctx.respond(f'{ctx.author.mention} bet {wager} {betting} {"on" if choice == "For" else "against"} "{bet}"! The deadline is on {deadline_dt}. To join in on the bet, use /gamble join with the ID "{gamba_id}".')
 
 @gamble.child
-@lightbulb.option("id", "ID of the bet you want to join.", type=str, autocomplete=True)
+@lightbulb.option("id", "ID of the bet you want to join.", type=str)
 @lightbulb.option("wager", "How much you wish to wager.", type=float)
 @lightbulb.option("choice", "Whether or not you're betting on the thing happening or not.", type=str, choices=["For", "Against"])
 @lightbulb.command("join", "Bet basedbucks or keks on a currently placed bet. Currency used depends on the original bet.", pass_options=True)
@@ -674,6 +726,15 @@ async def wager_gamble(ctx: lightbulb.Context, id: str, wager: float, choice: st
     bet_data = gambling_list.find_one({"bet_id": id})
     if not bet_data:
         await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+        
+    user_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
+    if user_data and user_data.get("kekbanned", False) and bet_data["betting"] == "Keks":
+        dm_channel = await event.app.rest.create_dm_channel(user.id)
+        await event.app.rest.create_message(
+            channel=dm_channel.id,
+            content=f"Sorry {ctx.author.mention}, you are banned from participating in the kekonomy.",
+        )
         return
         
     for better in bet_data["betters"]:
@@ -715,6 +776,15 @@ async def raise_gamble(ctx: lightbulb.Context, id: str, ante: float) -> None:
     bet_data = gambling_list.find_one({"bet_id": id})
     if not bet_data:
         await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+        
+    user_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
+    if user_data and user_data.get("kekbanned", False) and bet_data["betting"] == "Keks":
+        dm_channel = await event.app.rest.create_dm_channel(user.id)
+        await event.app.rest.create_message(
+            channel=dm_channel.id,
+            content=f"Sorry {ctx.author.mention}, you are banned from participating in the kekonomy.",
+        )
         return
     
     for better in bet_data["betters"]:
@@ -798,7 +868,7 @@ async def win_gamble(ctx: lightbulb.Context, id: str) -> None:
             winnings = wager * 1.5 if bet_data["nonbeliever_pot"] == 0 else (wager + (bet_data["nonbeliever_pot"] / len(believers))) * 1.5
             kek_counter.update_one(
                 {"user_id": user_id},
-                {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": winnings}},
+                {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": round(winnings, 2)}},
                 upsert=True
             )
             
@@ -864,8 +934,9 @@ async def list_gamble(ctx: lightbulb.Context) -> None:
     for bet in bets:
         believers = count_for(bet)
         nonbelievers = count_against(bet)
-        believers_list = "\n".join([f"• {player['name']}" for player in believers])
-        nonbelievers_list = "\n".join([f"• {player['name']}" for player in nonbelievers])
+        believers_list = "\n".join([f"• {player['name']} ({player['wager']})" for player in believers])
+        nonbelievers_list = "\n".join([f"• {player['name']} ({player['wager']})" for player in nonbelievers])
+        
         embed.set_footer(
             text=f"Requested by {ctx.author}",
             icon=ctx.author.display_avatar_url,
@@ -873,7 +944,9 @@ async def list_gamble(ctx: lightbulb.Context) -> None:
         embed.add_field(
             name=f"Bet ID: {bet['bet_id']}",
             value=f"**Bet:** {bet['bet']}\n"
-                  f"**Betting:** {bet['betting']}\n",
+                  f"**Betting:** {bet['betting']}\n"
+                  f"**Bet Date:** {bet['bet_date']}\n"
+                  f"**Bet Deadline:** {bet['deadline']}\n",
             inline=False
         )
         embed.add_field(
@@ -895,3 +968,4 @@ async def list_gamble(ctx: lightbulb.Context) -> None:
     
 def load(bot: lightbulb.BotApp) -> None:
     bot.add_plugin(gambling_plugin)
+    update_active_bet_ids()

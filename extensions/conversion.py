@@ -82,8 +82,8 @@ async def mass(ctx: lightbulb.Context, from_unit: str, to_unit: str, value: floa
     await ctx.respond(f"{value} {unit_shortcuts[from_unit]} is equal to {conversion} {unit_shortcuts[to_unit]}.")
     
 @convert.child
-@lightbulb.option("from_unit", "What unit to convert from.", type=str, choices=["Meter", "Inch", "Foot", "Yard", "Chain", "Hand", "Horse Length", "Furlong", "Mile", "League (Land)", "Fathom", "Naut Mile", "Smoot", "Double-Decker Bus", "Football Field"])
-@lightbulb.option("to_unit", "What unit to convert into.", type=str, choices=["Meter", "Inch", "Foot", "Yard", "Chain", "Hand", "Horse Length", "Furlong", "Mile", "League (Land)", "Fathom", "Naut Mile", "Smoot", "Double-Decker Bus", "Football Field"])
+@lightbulb.option("from_unit", "What unit to convert from.", type=str, choices=["Meter", "Kilometer", "Inch", "Foot", "Yard", "Chain", "Hand", "Horse Length", "Furlong", "Mile", "League (Land)", "Fathom", "Naut Mile", "Smoot", "Double-Decker Bus", "Football Field"])
+@lightbulb.option("to_unit", "What unit to convert into.", type=str, choices=["Meter", "Kilometer", "Inch", "Foot", "Yard", "Chain", "Hand", "Horse Length", "Furlong", "Mile", "League (Land)", "Fathom", "Naut Mile", "Smoot", "Double-Decker Bus", "Football Field"])
 @lightbulb.option("rounding", "How many decimal places to round. Defaults to 2.", type=int, default=2, required=False)
 @lightbulb.option("value", "The value of the digit that you want to convert.", type=float)
 @lightbulb.command("length", "Convert length into different units.", pass_options=True)
@@ -93,11 +93,12 @@ async def length(ctx: lightbulb.Context, from_unit: str, to_unit: str, value: fl
         await ctx.respond("You cannot convert into the same type of unit!")
         return
         
-    unit_shortcuts = {"Meter": "m", "Inch": "in", "Foot": "ft", "Yard": "yd", "Chain": "ch", "Hand": "h", "Horse Length": "horse lengths", "Furlong": "furlongs", "Mile": "mi", "League (Land)": "leagues", "Fathom": "fathoms", "Naut Mile": "nmi", "Smoot": "smoots", "Double-Decker Bus": "double-decker buses", "Football Field": "football fields"}
+    unit_shortcuts = {"Meter": "m", "Kilometer": "km", "Inch": "in", "Foot": "ft", "Yard": "yd", "Chain": "ch", "Hand": "h", "Horse Length": "horse lengths", "Furlong": "furlongs", "Mile": "mi", "League (Land)": "leagues", "Fathom": "fathoms", "Naut Mile": "nmi", "Smoot": "smoots", "Double-Decker Bus": "double-decker buses", "Football Field": "football fields"}
     
     # standardized to the yard
     units = {
         "Meter": 1.093613,
+        "Kilometer": 1093.613,
         "Inch": 0.027778,
         "Foot": 0.333333,
         "Yard": 1,
