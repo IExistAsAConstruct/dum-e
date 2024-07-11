@@ -6,6 +6,10 @@ import asyncio
 import requests
 import hikari
 import lightbulb
+import textwrap
+
+from PIL import Image, ImageDraw, ImageFont
+
 meme_plugin = lightbulb.Plugin("Memes")
 
 target_user_id = 146996859183955968
@@ -47,6 +51,51 @@ async def send_message_capital_or_no(ctx, channel, message, type, ephemeral):
                 await ctx.app.rest.create_message(ctx.channel_id, message, flags=hikari.MessageFlag.EPHEMERAL)
             else:
                 await ctx.app.rest.create_message(ctx.channel_id, message)
+                
+@meme_plugin.command()
+@lightbulb.option("image", "Image chosen for the meme.", type=str, choices=["LaughingWolves", "Gigachad", "CommunistBugs", "SoyjakPointing", "TrumpPoint", "TrumpShock", "BidenIceCream", "GusFring", "BrainletSolidarity", "TappingForehead"])
+@lightbulb.option("top_text", "Text for the top of the meme.", required=False)
+@lightbulb.option("bottom_text", "Text for the bottom of the meme.", required=False)
+@lightbulb.command("meme", "Make a meme.", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def meme(ctx: lightbulb.SlashContext, image: str, top_text: str, bottom_text: str) -> None:
+    # Open the image using PIL
+    image_pil = Image.open("memes/" + image + ".png")
+    
+    # Calculate font size based on image size
+    image_width, image_height = image_pil.size
+    font_size = max(10, min(image_width // 10, image_height // 10))  # Adjust as needed
+    
+    # Create a drawing context
+    draw = ImageDraw.Draw(image_pil)
+    
+    # Load a font
+    font = ImageFont.truetype("impact.ttf", size=font_size)
+    
+    # Text wrapping
+    max_text_width = image_width - 5
+    
+    if top_text:
+        top_text_wrapped = "\n".join(textwrap.wrap(top_text, width=18))
+        top_text_bbox = draw.multiline_textbbox((0, 0), top_text_wrapped, font=font)
+        top_text_position = ((image_width - (top_text_bbox[2] - top_text_bbox[0])) / 2, 10)
+        draw.multiline_text(top_text_position, top_text_wrapped, fill="white", font=font, align="center", stroke_fill="black", stroke_width=font_size // 10)
+    
+    if bottom_text:
+        bottom_text_wrapped = "\n".join(textwrap.wrap(bottom_text, width=18))
+        bottom_text_bbox = draw.multiline_textbbox((0, 0), bottom_text_wrapped, font=font)
+        bottom_text_height = bottom_text_bbox[3] - bottom_text_bbox[1]
+        bottom_text_position_y = image_height - bottom_text_height + 10
+        bottom_text_position = ((image_width - (bottom_text_bbox[2] - bottom_text_bbox[0])) / 2, bottom_text_position_y)
+        draw.multiline_text(bottom_text_position, bottom_text_wrapped, fill="white", align="center", font=font, anchor="ls", stroke_fill="black", stroke_width=font_size // 10)
+    
+    output_filename = "meme.png"
+    image_pil.save(output_filename)
+    
+    file = hikari.File('meme.png', filename='meme.png')
+    
+    # Send the image as a message
+    await ctx.respond(attachment=file)
 
 @meme_plugin.command
 @lightbulb.app_command_permissions(dm_enabled=False)
@@ -93,6 +142,7 @@ async def toiletbed(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = N
         "All in all, being a subreddit moderator is the best thing ever and I wouldn't trade it for anything, even if I do happen to be living in my toiletbed. "
         "It's not the most glamorous life, but it's mine and I make the best of it. "
         "So, if you happen to be on our PCM subreddit, know that there's a toiletbed-dwelling moderator, who also happen to be a anime and Mountain Dew enthusiast, a bit socially awkward, probably never had a real-life girlfriend, is just a big kid at heard and happen to be a neckbeard, keeping an eye on things.",
+        "Respond",
         False
     )
     
@@ -384,50 +434,48 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
     target_role = 928987214917025832
     response_counter = {}
     
-    if event.is_bot:
-        if event.content is not None:
-            content = re.sub(r"[',.?]", "", event.content.lower())
-            if "!bingo" in content:
-                api_endpoint = 'https://basedcount-bingo.netlify.app/api/v1/leaderboard'
-                try:
-                    # Make a GET request to the API
-                    response = requests.get(api_endpoint)
+    if event.is_bot and event.content is not None:
+        content = re.sub(r"[',.?]", "", event.content.lower())
+        if "!bingo" in content:
+            api_endpoint = 'https://basedcount-bingo.netlify.app/api/v1/leaderboard'
+            try:
+                # Make a GET request to the API
+                response = requests.get(api_endpoint)
+                # Check if the request was successful (status code 200)
+                if response.status_code == 200:
+                    # Parse the JSON response
+                    data = response.json()
 
-                    # Check if the request was successful (status code 200)
-                    if response.status_code == 200:
-                        # Parse the JSON response
-                        data = response.json()
-
-                        # Process leaderboard data
-                        leaderboard_entries = data['leaderboard']
-                        leaderboard_message = "Leaderboard:\n"
-                        for entry in leaderboard_entries:
-                            place = ordinal(entry['place'])
-                            leaderboard_message += f"{place} - {entry['name']} ({entry['victories']} {'wins' if entry['victories'] > 1 or entry['victories'] < 1 else 'win'})\n"
+                    # Process leaderboard data
+                    leaderboard_entries = data['leaderboard']
+                    leaderboard_message = "Leaderboard:\n"
+                    for entry in leaderboard_entries:
+                        place = ordinal(entry['place'])
+                        leaderboard_message += f"{place} - {entry['name']} ({entry['victories']} {'wins' if entry['victories'] > 1 or entry['victories'] < 1 else 'win'})\n"
                             
-                    else:
-                        await message.respond(f"Error: Unable to fetch data from the API (Status Code: {response.status_code})")
+                else:
+                    await message.respond(f"Error: Unable to fetch data from the API (Status Code: {response.status_code})")
                 
-                except Exception as e:
-                    await message.respond(f"An error occurred: {e}")
+            except Exception as e:
+                await message.respond(f"An error occurred: {e}")
                     
-                await message.respond(
-                    "Go to https://bingo.basedcount.com/ and play with the official basedcount_bot bingo card!\n\n"
-                    "Only people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\n"
-                    "Rules:\n* Log in with your Discord account.\n"
-                    "* A card has automatically been generated for you. You don't have to take screenshots of it nor send it in the bingo channel.\n"
-                    "* When someone ticks a box for the first time, a notification will be sent by the bot here on the bingo channel, as well as on the log on the site. You don't have to send a screenshot of the ticked box.\n"
-                    "* Get a bingo by marking off the board whenever certain events happen.\n"
-                    "* No cheesing the card by purposely doing the tiles on the board. It must happen naturally. Light baiting is allowed, but only in forms of social engineering.\n"
-                    "* If it doesn't happen in the basedcount server, it doesn't count.\n"
-                    "* If it doesn't happen in a publicly available channel, it doesn't count.\n"
-                    "* I Exist and the admins get to determine what does or does not count as a hit on the bingo card if it's not obvious.\n"
-                    "* If someone gets a valid bingo, no more squares can be marked unless you noticed you missed a mark before.\n"
-                    "* If more than one people get a bingo at once, it counts as a win for all of them.\n"
-                    "* The current round lasts for one week, starting at the beginning of the round. If seven days have passed without a bingo, then the game is a draw and a new round with new cards begins.\n\n"
-                    f"{leaderboard_message}"
-                )
-        return
+            await message.respond(
+                "Go to https://bingo.basedcount.com/ and play with the official basedcount_bot bingo card!\n\n"
+                "Only people with the \"Bingo Player\" role can participate. If you wish to join, ask a Server Admin to give you the role.\n\n"
+                "Rules:\n* Log in with your Discord account.\n"
+                "* A card has automatically been generated for you. You don't have to take screenshots of it nor send it in the bingo channel.\n"
+                "* When someone ticks a box for the first time, a notification will be sent by the bot here on the bingo channel, as well as on the log on the site. You don't have to send a screenshot of the ticked box.\n"
+                "* Get a bingo by marking off the board whenever certain events happen.\n"
+                "* No cheesing the card by purposely doing the tiles on the board. It must happen naturally. Light baiting is allowed, but only in forms of social engineering.\n"
+                "* If it doesn't happen in the basedcount server, it doesn't count.\n"
+                "* If it doesn't happen in a publicly available channel, it doesn't count.\n"
+                "* I Exist and the admins get to determine what does or does not count as a hit on the bingo card if it's not obvious.\n"
+                "* If someone gets a valid bingo, no more squares can be marked unless you noticed you missed a mark before.\n"
+                "* If more than one people get a bingo at once, it counts as a win for all of them.\n"
+                "* The current round lasts for one week, starting at the beginning of the round. If seven days have passed without a bingo, then the game is a draw and a new round with new cards begins.\n\n"
+                f"{leaderboard_message}"
+            )
+    return
         
     if event.content is not None:
         content = re.sub(r"[',.?]", "", event.content.lower())
@@ -464,7 +512,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
             await message.respond('Goodbye, DUM-E!')
             await message.respond(file)
             
-        if 'what browser' in content or 'browser' in content or 'browse' in content:
+        if 'what browser' in content or 'browser' in content or 'browse' in content or 'internet' in content or 'explorer' in content:
             if random.random() < 0.1:
                 if message.member.id not in response_counter:
                     response_counter[message.member.id] = 0
@@ -563,26 +611,39 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 )
                     
         if "cringe" in content or "based" in content:
-            if random.random() < 0.05:
+            if random.random() < 0.01:
                 await message.respond(
                     "Doesn't matter what the press says. Doesn't matter what the politicians or the mobs say. Doesn't matter if the whole country decides that something cringe is something based.\n\n"
                     "This nation was founded on one principle above all else: The requirement that we stand up for what we believe is based, no matter the odds or the consequences. "
                     "When the mob and the press and the whole world tell you you're cringe, your job is to plant yourself like a tree beside the river of basedness, "
                     "and tell the whole world -- ”No, YOU'RE cringe.”"
                     )
+                    
+                    
+        if "dimension" in content or "dimensional" in content or "body" in content or "mind" in content or "3d" in content or "1d" in content or "waste" in content or "wasting" in content:
+            if random.random() < 0.01:
+                await message.respond(
+                    "Your wasting your 3 dimensional body with a 1 dimensional mind"
+                    )
         
         if "swiss" in content or 'switzerland' in content:
-            if random.random() < 0.15:
+            if random.random() < 0.05:
                 response = "https://en.wikipedia.org/wiki/Switzerland_during_the_World_Wars#Financial_relationships_with_Nazi_Germany"
                 await message.respond(response)
                 print(f"{event.get_member()} got swiss'd")
                 
+        if "schizo" in content or 'schizophrenic' in content or 'schizopost' in content or 'schizoposting' in content or 'schizophrenia' in content or 'schizophreniac' in content or 'racist' in content or 'racism' in content:
+            if random.random() < 0.01:
+                file = hikari.File('images/schizoracist.png', filename='schizoracist.png')
+                await message.respond(file)
+                print(f"{event.get_member()} got schizo'd")
+                
         if content.startswith('joewari da'):
-            file = discord.File('images/joewari.jpg', filename='joewari.jpg')
+            file = hikari.File('images/joewari.jpg', filename='joewari.jpg')
             await message.respond(file)
             
         if target_role in user.role_ids:
-            if random.random() < 0.001:
+            if random.random() < 0.1:
                 await message.respond(
                     "Posting content again that was deemed rule breaking by one of us is defacto considered rule breaking. "
                     "If you have questions as to why it was removed. You can ask via modmail and we will answer there. "

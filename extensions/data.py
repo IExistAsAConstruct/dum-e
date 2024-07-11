@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from datetime import timedelta
 from typing import Optional
 from collections import Counter
@@ -7,6 +7,7 @@ from database import kek_counter
 import requests
 import random
 import re
+import math
 
 import hikari
 from hikari import User
@@ -36,56 +37,44 @@ rank_titles = ["Occasionally Funny", "Jokester", "Stand Up Comedian", "Class Clo
 @lightbulb.command("userinfo", "Get info on a server member.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashCommand, lightbulb.UserCommand)
 async def userinfo(
-    ctx: lightbulb.SlashContext, target: Optional[hikari.User] = None, user: Optional[hikari.User] = None
+    ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None
 ) -> None:
     assert ctx.guild_id is not None
-    
+
     guild = await ctx.app.rest.fetch_guild(ctx.guild_id)
-    user = target or user or ctx.author
-    user = await ctx.app.rest.fetch_member(ctx.guild_id, user)
-    color = await user.fetch_roles()
-    color = color[1]
-    color = color.color
-    data = list(kek_counter.find())
-    now = datetime.utcnow()
+    target_user = user or ctx.author
+    member = await ctx.app.rest.fetch_member(ctx.guild_id, target_user.id)
+    roles = await member.fetch_roles()
+    color = roles[1].color if len(roles) > 1 else roles[0].color if len(roles) > 0 else hikari.Colour(0xFFFFFF)
+
+    now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
-    one_month_ago = now - timedelta(days = 30)
-    total_keks = 0
-    based_count = 0
-    keks_last_7_days = []
-    keks_last_month = []
-    kek_amount = 0
-    antikek_amount = 0
-    keks_list = []
-    for i, user_data in enumerate(data[0:len(data)]):
-        if user_data["user_id"] == str(user.id):
-            total_keks = user_data["kek_count"]
-            based_count = user_data["based_count"]
-            basedbucks = user_data["basedbucks"]
-            keks_last_7_days = [kek for kek in user_data["keks"] if datetime.fromisoformat(kek["date"]) >= seven_days_ago]
-            keks_last_month = [kek for kek in user_data["keks"] if datetime.fromisoformat(kek["date"]) >= one_month_ago]
-            kek_types = user_data["keks"]
-            for keks in kek_types:
-                kek_amount = keks["kek_type"] if keks["kek_type"] == "kek" else "ANTIkek"
-                keks_list += [kek_amount]
-            counts = Counter(keks_list)
-            kek_amount = counts['kek']
-            rank = user_data['rank']
-            antikek_amount = counts['ANTIkek']
-            
-    if not user:
-        await ctx.respond("That user is not in this server.")
+    one_month_ago = now - timedelta(days=30)
+
+    # Fetch user data from the database (assuming kek_counter is a collection)
+    user_data = kek_counter.find_one({"user_id": str(member.id)})
+
+    if not user_data:
+        await ctx.respond("No data found for this user.")
         return
-    
-    created_at = int(user.created_at.timestamp())
-    joined_at = int(user.joined_at.timestamp())
-    user_data = kek_counter.find_one({"user_id": str(user.id)})
-    
-    #roles = [f"<@&{role}>" for role in user.role_ids if role != ctx.guild_id]
-    
+
+    total_keks = user_data.get("kek_count", 0)
+    based_count = user_data.get("based_count", 0)
+    basedbucks = user_data.get("basedbucks", 0)
+    kekbanned = user_data.get("kekbanned", False)
+    rank = user_data.get("rank", "No rank")
+
+    keks_last_7_days = [kek for kek in user_data.get("keks", []) if datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= seven_days_ago]
+    keks_last_month = [kek for kek in user_data.get("keks", []) if datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= one_month_ago]
+
+    kek_types = [kek["kek_type"] for kek in user_data.get("keks", [])]
+    counts = Counter(kek_types)
+    kek_amount = counts.get("kek", 0)
+    antikek_amount = counts.get("ANTIkek", 0)
+
     embed = (
         hikari.Embed(
-            title=f"User Info - {user.display_name}",
+            title=f"User Info - {member.display_name}",
             description=f"**{rank}**",
             colour=color,
             timestamp=datetime.now().astimezone(),
@@ -94,89 +83,34 @@ async def userinfo(
             text=f"Requested by {ctx.author}",
             icon=ctx.author.display_avatar_url,
         )
-        .set_thumbnail(user.avatar_url)
-        .add_field(
-            "Bot?",
-            "Yes" if user.is_bot else "No\nᴮᵘᵗ ʳᵉᵃˡˡʸ, ᵃ ᵇᵒᵗˀ",
-            inline=True,
-        )
+        .set_thumbnail(member.avatar_url)
+        .add_field("Bot?", "Yes" if member.is_bot else "No", inline=True)
         .add_field(
             "Created account on",
-            f"<t:{created_at}:d>\n(<t:{created_at}:R>)",
+            f"<t:{int(member.created_at.timestamp())}:d>\n(<t:{int(member.created_at.timestamp())}:R>)",
             inline=True,
         )
         .add_field(
             "Joined server on",
-            f"<t:{joined_at}:d>\n(<t:{joined_at}:R>)",
+            f"<t:{int(member.joined_at.timestamp())}:d>\n(<t:{int(member.joined_at.timestamp())}:R>)",
             inline=True,
         )
-        .add_field(
-            "General Kek Data",
-            "-------",
-            inline=False,
-        )
-        .add_field(
-            "Kek Count (Total)",
-            f"{total_keks} total keks",
-            inline=True,
-        )
-        .add_field(
-            "Recorded Keks",
-            f"{kek_amount} keks with data on record",
-            inline=True,
-        )
-        .add_field(
-            "Recorded ANTIkeks",
-            f"{antikek_amount} ANTIkeks with data on record",
-            inline=True,
-        )
-        .add_field(
-            "Weekly/Monthly Kek Data",
-            "-------",
-            inline=False,
-        )
-        .add_field(
-            "Kek Count (Week)",
-            f"{len(keks_last_7_days)} total keks in last week",
-            inline=True,
-        )
-        .add_field(
-            "Kek Count (Month)",
-            f"{len(keks_last_month)} total keks in last month",
-            inline=True,
-        )
-        .add_field(
-            "Keks per day (Week)",
-            f"{round(len(keks_last_7_days) / 7, 2)} keks per day in last week",
-            inline=True,
-        )
-        .add_field(
-            "Keks per day (Month)",
-            f"{round(len(keks_last_month) / 30, 2)} keks per day in last month",
-            inline=True,
-        )
-        .add_field(
-            "Miscellaneous Data",
-            "-------",
-            inline=False,
-        )
-        .add_field(
-            "Kek:ANTIkek ratio",
-            f"{round(kek_amount / antikek_amount, 2) if antikek_amount != 0 else 'Infinite'} kek ratio",
-            inline=True,
-        )
-        .add_field(
-            "Based Count",
-            f"{based_count} total baseds",
-            inline=True,
-        )
-        .add_field(
-            "Basedbucks",
-            f"{basedbucks} Basedbuck/s in the bank",
-            inline=True,
-        )
+        .add_field("General Kek Data", "-------", inline=False)
+        .add_field("Kek Count (Total)", f"{total_keks} total keks", inline=True)
+        .add_field("Recorded Keks", f"{kek_amount} keks with data on record", inline=True)
+        .add_field("Recorded ANTIkeks", f"{antikek_amount} ANTIkeks with data on record", inline=True)
+        .add_field("Kekbanned?", f"{kekbanned}", inline=True)
+        .add_field("Weekly/Monthly Kek Data", "-------", inline=False)
+        .add_field("Kek Count (Week)", f"{len(keks_last_7_days)} total keks in last week", inline=True)
+        .add_field("Kek Count (Month)", f"{len(keks_last_month)} total keks in last month", inline=True)
+        .add_field("Keks per day (Week)", f"{round(len(keks_last_7_days) / 7, 2)} keks per day in last week", inline=True)
+        .add_field("Keks per day (Month)", f"{round(len(keks_last_month) / 30, 2)} keks per day in last month", inline=True)
+        .add_field("Miscellaneous Data", "-------", inline=False)
+        .add_field("Kek:ANTIkek ratio", f"{round(kek_amount / antikek_amount, 2) if antikek_amount != 0 else 'Infinite'} kek ratio", inline=True)
+        .add_field("Based Count", f"{based_count} total baseds", inline=True)
+        .add_field("Basedbucks", f"{basedbucks} {'Basedbucks' if basedbucks != 1 else 'Basedbuck'} in the bank", inline=True)
     )
-    
+
     await ctx.respond(embed)
     
 @data_plugin.command
@@ -346,23 +280,24 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 # If the user does not exist, insert the data
                 if not user_data:
                     user_data = {
-                        "username": replied_message.author.username,
-                        "display_name": replied_message.author.display_name,
-                        "user_id": str(replied_message_author.id),
+                        "username": message.author.username,
+                        "display_name": member.display_name,
+                        "user_id": str(message.author.id),
                         "rank": "Rankless",
                         "keks": [],
                         "kek_count": 0,
                         "based_count": 0,
                         "basedbucks": 500,
-                        "loan_debt": []
+                        "loan_debt": [],
+                        "kekbanned": False
                     }
                     kek_counter.insert_one(user_data)
 
-                last_based_time = user_based_cooldown.get(user.id, datetime.min)
+                last_based_time = user_based_cooldown.get(user.id, datetime.min.replace(tzinfo=timezone.utc))
                 
                 cooldown_duration = timedelta(minutes=1)
                 
-                if datetime.utcnow() - last_based_time >= cooldown_duration:
+                if datetime.now(timezone.utc) - last_based_time >= cooldown_duration:
                     # Update the document with kek information
                     kek_counter.update_one(
                         {"user_id": str(replied_message.author.id)},
@@ -373,7 +308,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     )
 
                     # Update the last "based" time for the user in the cooldown dictionary
-                    user_based_cooldown[user.id] = datetime.utcnow()
+                    user_based_cooldown[user.id] = datetime.now(timezone.utc)
 
                     print(f"{user.username} gave {replied_message.author.username} a based")
 
@@ -401,23 +336,24 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 # If the user does not exist, insert the data
             if not user_data:
                 user_data = {
-                    "username": messages.author.username,
-                    "display_name": messages.author.display_name,
-                    "user_id": str(messages_author.id),
+                    "username": message.author.username,
+                    "display_name": member.display_name,
+                    "user_id": str(message.author.id),
                     "rank": "Rankless",
                     "keks": [],
                     "kek_count": 0,
                     "based_count": 0,
                     "basedbucks": 500,
-                    "loan_debt": []
+                    "loan_debt": [],
+                    "kekbanned": False
                 }
                 kek_counter.insert_one(user_data)
 
-            last_based_time = user_based_cooldown.get(user.id, datetime.min)
+            last_based_time = user_based_cooldown.get(user.id, datetime.min.replace(tzinfo=timezone.utc))
               
             cooldown_duration = timedelta(minutes=1)
             
-            if datetime.utcnow() - last_based_time >= cooldown_duration:
+            if datetime.now(timezone.utc) - last_based_time >= cooldown_duration:
                 # Update the document with kek information
                 kek_counter.update_one(
                     {"user_id": str(messages.author.id)},
@@ -428,7 +364,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 )
 
                 # Update the last "based" time for the user in the cooldown dictionary
-                user_based_cooldown[user.id] = datetime.utcnow()
+                user_based_cooldown[user.id] = datetime.now(timezone.utc)
 
                 print(f"{user.username} gave {messages.author.username} a based")
 
@@ -494,7 +430,81 @@ async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message,
         
     await leaderboard_channel.send(embed=embed)
     await leaderboard_channel.send(f"{keking_user.display_name} ({keking_user.username}) reacted to {kekd_member.display_name}'s ({kekd_member.username}) [message]({message.make_link(guild)}) with {'a kek' if kek_type == 'kek' else 'an antikek'}!")
+    
+@data_plugin.command
+@lightbulb.add_checks(lightbulb.owner_only | lightbulb.has_roles(928983928289771560))
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option("user", "The user to ban from participating.", hikari.User)
+@lightbulb.command("kekban", "Ban a user from participating in the kekonomy. They can still receive keks.", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def kekban(
+    ctx: lightbulb.SlashContext, user: hikari.User
+) -> None:
+    user_data = kek_counter.find_one({"user_id": str(user.id)})
+    
+    if not user_data:
+        user_data = {
+            "username": user.username,
+            "display_name": user.display_name,
+            "user_id": str(user.id),
+            "rank": "Rankless",
+            "keks": [],
+            "kek_count": 0,
+            "based_count": 0,
+            "basedbucks": 500,
+            "loan_debt": [],
+            "kekbanned": False
+        }
+        kek_counter.insert_one(user_data)
+    if user_data["kekbanned"]:
+        await ctx.respond(f"{user.mention} is already banned from participating in the kekonomy.", flags=hikari.MessageFlag.EPHEMERAL)
+        return
         
+    # Set the kekbanned flag to True
+    kek_counter.update_one(
+        {"user_id": str(user.id)},
+        {"$set": {"kekbanned": True}}
+    )
+
+    await ctx.respond(f"{user.mention} has been banned from participating in the kekonomy.")
+    
+@data_plugin.command
+@lightbulb.add_checks(lightbulb.owner_only | lightbulb.has_roles(928983928289771560))
+@lightbulb.app_command_permissions(dm_enabled=False)
+@lightbulb.option("user", "The user to allow to participate.", hikari.User)
+@lightbulb.command("kekunban", "Reallow a user to participate in the kekonomy.", pass_options=True)
+@lightbulb.implements(lightbulb.SlashCommand)
+async def kekunban(
+    ctx: lightbulb.SlashContext, user: hikari.User
+) -> None:
+    user_data = kek_counter.find_one({"user_id": str(user.id)})
+    
+    if not user_data:
+        user_data = {
+            "username": user.username,
+            "display_name": user.display_name,
+            "user_id": str(user.id),
+            "rank": "Rankless",
+            "keks": [],
+            "kek_count": 0,
+            "based_count": 0,
+            "basedbucks": 500,
+            "loan_debt": [],
+            "kekbanned": False
+        }
+        kek_counter.insert_one(user_data)
+    if not user_data["kekbanned"]:
+        await ctx.respond(f"{user.mention} is already allowed to participate in the kekonomy.", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+        
+    # Set the kekbanned flag to False
+    kek_counter.update_one(
+        {"user_id": str(user.id)},
+        {"$set": {"kekbanned": False}}
+    )
+
+    await ctx.respond(f"{user.mention} has been allowed to participate in the kekonomy once more.")
+
 @data_plugin.listener(hikari.ReactionAddEvent)
 async def kek_counting(event: hikari.ReactionAddEvent) -> None:
     
@@ -503,10 +513,22 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
     message = await event.app.rest.fetch_message(event.channel_id, event.message_id)
     try:
         member = await event.app.rest.fetch_member(event.guild_id, message.author)
+        if member.id == 1125871833053417585 and message.interaction and message.interaction.name == "meme":
+            member = await event.app.rest.fetch_member(event.guild_id, message.interaction.user.id)
     except hikari.errors.NotFoundError:
         member = "Unknown User"
     if user.is_bot or user.id == member.id:
         return
+        
+    user_data = kek_counter.find_one({"user_id": str(user.id)})
+    if user_data and user_data.get("kekbanned", False):
+        dm_channel = await event.app.rest.create_dm_channel(user.id)
+        await event.app.rest.create_message(
+            channel=dm_channel.id,
+            content=f"Sorry {user.mention}, you are banned from participating in the kekonomy.",
+        )
+        return
+        
     antikek_limit = False
     emoji_type = message.reactions
     for i in emoji_type:
@@ -518,7 +540,7 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
         user_id = str(event.user_id)
         antikek_info['user_id'] = user_id
 
-        if antikek_info["count"] >= 3 and (datetime.utcnow() - antikek_info["last_timestamp"]).total_seconds() < 43200:  # 12 hours cooldown
+        if antikek_info["count"] >= 3 and (datetime.now(timezone.utc) - antikek_info["last_timestamp"]).total_seconds() < 43200:  # 12 hours cooldown
             print("exceeded antikek limit")
             antikek_limit = True
                     # User has exceeded the limit, you can choose to ignore or send a message indicating the limit
@@ -526,7 +548,7 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
 
                 # Update the ANTIkek count and timestamp for the user
         antikek_info["count"] += 1
-        antikek_info["last_timestamp"] = datetime.utcnow()
+        antikek_info["last_timestamp"] = datetime.now(timezone.utc)
         antikek_data = [antikek_info]
                 
         chance_of_response = 0.001  # 0.1% chance
@@ -567,7 +589,8 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
                 "kek_count": 0,
                 "based_count": 0,
                 "basedbucks": 500,
-                "loan_debt": []
+                "loan_debt": [],
+                "kekbanned": False
             }
             kek_counter.insert_one(user_data)
             
@@ -594,7 +617,7 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
                     "$push": {
                         "keks": {
                             "messageLink": message.make_link(event.guild_id),
-                            "date": datetime.utcnow().isoformat(),
+                            "date": datetime.now(timezone.utc).isoformat(),
                             "reacter_user_id": str(event.user_id),
                             "reacter_username": user.username,
                             "kek_type": kek_type,
@@ -644,9 +667,6 @@ async def update_rank(user_id, channel_id, user, member, channel):
 
             # Check if the user has reached the very last rank
             if new_rank == rank_titles[-2]:
-                # Get the user and channel objects
-            #    user = await bot.rest.fetch_user(user_id)
-            #    channel = await bot.rest.fetch_channel(channel_id)
 
                 if channel:
                     # Send a special message for achieving the very last rank
@@ -681,7 +701,7 @@ async def update_rank(user_id, channel_id, user, member, channel):
                 
                 break
         
-    if not rank_up and kek_count % 10 == 0:
+    if not rank_up and math.trunc(kek_count) % 10 == 0:
         # Get the user and channel objects
     #    user = await bot.rest.fetch_user(user_id)
     #    channel = await bot.rest.fetch_channel(channel_id)
