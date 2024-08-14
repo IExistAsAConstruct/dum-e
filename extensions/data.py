@@ -376,7 +376,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
 
                     if channel:
                         # Send congratulatory message
-                        await event.app.rest.create_message(channel.id, content = f"{replied_message.author.username} reached a based count milestone of {based_count}!")
+                        await event.app.rest.create_message(channel.id, content = f"{message.author.username} reached a based count milestone of {based_count}!")
             
     
 async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message, leaderboard_channel):
