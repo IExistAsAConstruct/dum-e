@@ -74,7 +74,53 @@ async def mass(ctx: lightbulb.Context, from_unit: str, to_unit: str, value: floa
         "Pound": 1,
         "Stone": 14,
         "Short Ton": 2000,
-        "Long Tom": 2240
+        "Long Ton": 2240
+    }
+    
+    conversion = round(value * units[from_unit] / units[to_unit], rounding)
+    
+    await ctx.respond(f"{value} {unit_shortcuts[from_unit]} is equal to {conversion} {unit_shortcuts[to_unit]}.")
+    
+@convert.child
+@lightbulb.option("from_unit", "What unit to convert from.", type=str, choices=["Second", "Minute", "Hour", "Day", "Week", "Month", "Year", "Fortnight", "Moment", "Quarantine", "Semester", "Microcentury", "Scaramucci", "Shake", "Atom", "Quibi", "Scrupulum", "Sol", "Dog Year", "KerMetric", "Decimal Second", "Decimal Minute", "Décime", "Decimal Hour"])
+@lightbulb.option("to_unit", "What unit to convert into.", type=str, choices=["Second", "Minute", "Hour", "Day", "Week", "Month", "Year", "Fortnight", "Moment", "Quarantine", "Semester", "Microcentury", "Scaramucci", "Shake", "Atom", "Quibi", "Scrupulum", "Sol", "Dog Year", "KerMetric", "Decimal Second", "Decimal Minute", "Décime", "Decimal Hour"])
+@lightbulb.option("rounding", "How many decimal places to round. Defaults to 2.", type=int, default=2, required=False)
+@lightbulb.option("value", "The value of the digit that you want to convert.", type=float)
+@lightbulb.command("time", "Convert time into different units.", pass_options=True)
+@lightbulb.implements(lightbulb.SlashSubCommand)
+async def time(ctx: lightbulb.Context, from_unit: str, to_unit: str, value: float, rounding: int = 2) -> None:
+    if to_unit == from_unit:
+        await ctx.respond("You cannot convert into the same type of unit!")
+        return
+        
+    unit_shortcuts = {"Second": "sec", "Minute": "min", "Hour": "hr", "Day": "day", "Week": "wk", "Month": "mos", "Year": "yr", "Fortnight": "fortn", "Moment": "mom", "Quarantine": "qrt", "Semester": "sem", "Microcentury": "mcen", "Scaramucci": "mooch", "Shake": "shakes", "Atom": "atm", "Quibi": "quibi", "Scrupulum": "scrupulum", "Sol": "sol", "Dog Year": "dog year", "KerMetric": "kermit", "Decimal Second": "dsec", "Decimal Minute": "dmin", "Décime": "décime", "Decimal Hour": "dhr"}
+    
+    # standardized to the second
+    units = {
+        "Second": 1,
+        "Minute": 60,
+        "Hour": 3600,
+        "Day": 86400,
+        "Week": 604800,
+        "Month": 2629746,
+        "Year": 31556952,
+        "Fortnight": 1209600,
+        "Moment": 90,
+        "Quarantine": 3456000,
+        "Semester": 10886400,
+        "Microcentury": 3155.7,
+        "Scaramucci": 950400,
+        "Shake": 0.00000001,
+        "Atom": 0.16,
+        "Quibi": 600,
+        "Scrupulum": 150,
+        "Sol": 88775,
+        "Dog Year": 4492800,
+        "KerMetric": 864,
+        "Decimal Second": 0.864,
+        "Decimal Minute": 86.4,
+        "Décime": 864,
+        "Decimal Hour": 8640
     }
     
     conversion = round(value * units[from_unit] / units[to_unit], rounding)

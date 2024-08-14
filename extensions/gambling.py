@@ -105,16 +105,25 @@ async def bank(ctx: lightbulb.SlashContext) -> None:
     await ctx.respond("invoked bank")
 
 @bank.child
-@lightbulb.option("user", "User to donate Basedbucks to.", type=hikari.User)
-@lightbulb.option("donation", "Amount of Basedbucks to donate.", type=float, min_value=1)
-@lightbulb.command("donate", "Donate your Basedbucks to a fellow user.", pass_options=True)
+@lightbulb.option("user", "User to wire money to.", type=hikari.User)
+@lightbulb.option("type", "What type of currency to wire. Keks affect kek count, Basedbucks are only used for gambling.", type=str, choices=["Keks", "Basedbucks"])
+@lightbulb.option("amount", "Amount to wire.", type=float, min_value=1)
+@lightbulb.command("wire", "Wire your Keks or Basedbucks to a fellow user.", pass_options=True)
 @lightbulb.implements(lightbulb.SlashSubCommand)
-async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: float) -> None:
+async def donate(ctx: lightbulb.SlashContext, user: hikari.User, amount: float, type: str) -> None:
     player_data = kek_counter.find_one({"user_id": str(ctx.author.id)})
-    if donation > player_data["basedbucks"]:
-        await ctx.respond("You don't have enough money to make that kind of donation!", flags=hikari.MessageFlag.EPHEMERAL)
+    if player_data and player_data.get("kekbanned", False) and type == "Keks":
+        dm_channel = await ctx.app.rest.create_dm_channel(ctx.author.id)
+        await ctx.app.rest.create_message(
+            channel=dm_channel.id,
+            content=f"Sorry {ctx.author.mention}, you are banned from participating in the kekonomy.",
+        )
         return
-    if donation <= 0:
+        
+    if (type == 'Basedbucks' and amount > player_data["basedbucks"]) or (type == 'Keks' and amount > player_data["kek_count"]):
+        await ctx.respond("You don't have enough to make that kind of transanction!", flags=hikari.MessageFlag.EPHEMERAL)
+        return
+    if amount <= 0:
         await ctx.respond("You can't donate zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
         return
     if ctx.author.id == user.id:
@@ -123,18 +132,18 @@ async def donate(ctx: lightbulb.SlashContext, user: hikari.User, donation: float
     kek_counter.update_one(
             {"user_id": str(ctx.author.id)},
             {
-                "$inc": {'basedbucks': donation * -1}
+                "$inc": {f"{'kek_count' if type == 'Keks' else 'basedbucks'}": amount * -1}
             },
             upsert=True,
         )
     kek_counter.update_one(
             {"user_id": str(user.id)},
             {
-                "$inc": {'basedbucks': donation}
+                "$inc": {f"{'kek_count' if type == 'Keks' else 'basedbucks'}": amount}
             },
             upsert=True,
         )
-    await ctx.respond(f"{ctx.author.mention} donated {donation} {'Basedbucks' if donation != 1 else 'Basedbuck'} to {user.mention}!")
+    await ctx.respond(f"{ctx.author.mention} wired {amount} {'Kek' if type == 'Keks' and amount == 1 else 'Keks' if type == 'Keks' else 'Basedbuck' if amount == 1 else 'Basedbucks'} to {user.mention}!")
 
 @bank.child
 @lightbulb.option("borrow", "Amount of Basedbucks to borrow.", type=float, min_value=1)
