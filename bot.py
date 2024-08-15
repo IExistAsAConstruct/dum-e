@@ -12,7 +12,6 @@ import requests
 import urllib.parse
 import pymongo
 from pymongo import MongoClient
-from sympy import sympify
 from lightbulb.ext import tasks
 from hikari import Intents
 from hikari import Snowflake
@@ -22,7 +21,7 @@ dotenv.load_dotenv()
 INTENTS = Intents.GUILD_MEMBERS | Intents.GUILDS | Intents.DM_MESSAGES | Intents.GUILD_MESSAGES | Intents.MESSAGE_CONTENT | Intents.GUILD_MESSAGE_REACTIONS
 
 bot = lightbulb.BotApp(
-    os.environ["BOT_TOKEN"],
+    os.getenv("BOT_TOKEN"),
     prefix="!",
     intents=INTENTS,
     banner=None,
