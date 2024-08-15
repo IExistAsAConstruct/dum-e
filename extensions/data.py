@@ -281,7 +281,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 if not user_data:
                     user_data = {
                         "username": message.author.username,
-                        "display_name": member.display_name,
+                        "display_name": message.author.display_name,
                         "user_id": str(message.author.id),
                         "rank": "Rankless",
                         "keks": [],
@@ -337,7 +337,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
             if not user_data:
                 user_data = {
                     "username": message.author.username,
-                    "display_name": member.display_name,
+                    "display_name": message.author.display_name,
                     "user_id": str(message.author.id),
                     "rank": "Rankless",
                     "keks": [],
@@ -553,7 +553,7 @@ async def kek_counting(event: hikari.ReactionAddEvent) -> None:
                 
         chance_of_response = 0.001  # 0.1% chance
         if random.random() < chance_of_response:
-            channel = reaction.message.channel
+            channel = emoji_type.message.channel
             await channel.send(
                 "I just dekek'd your comment.\n\n# FAQ\n## What does this mean?\n"
                 "The amount of keks (laughs) on your leaderboard entry and discord account has decreased by one.\n\n"
