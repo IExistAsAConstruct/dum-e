@@ -418,7 +418,7 @@ class Blackjack:
         for _ in range(2):
             for player in self.players:
                 self.players[player]['hand'].append(self.deck.draw())
-                set_value(player)
+                self.set_value(player)
             self.dealerh.append(self.deck.draw())
         for player in self.players:
             self.players_hand_messages[player] = await ctx.app.rest.create_message(
@@ -434,7 +434,7 @@ class Blackjack:
     
     def hit(self, player):
         self.players[player]['hand'].append(self.deck.draw())
-        set_value(player)
+        self.set_value(player)
         
     def stand(self, player):
         self.players[player]['has_stood'] = True
