@@ -691,7 +691,7 @@ async def bet_gamble(ctx: lightbulb.Context, bet: str, betting: str, wager: floa
     while not is_unique:
         gamba_id = generate_game_id()
         other_ids = gambling_list.find_one({"bet_id": gamba_id})
-        is_unique = False if other_ids is not None and other_iSds == gamba_id else True
+        is_unique = False if other_ids is not None and other_ids == gamba_id else True
     
     gamble_data = {
         "bet": bet,
