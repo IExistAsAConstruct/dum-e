@@ -80,6 +80,12 @@ async def ping(ctx: lightbulb.SlashContext) -> None:
     await ctx.respond(f"Pong! Latency: {bot.heartbeat_latency * 1000:.2f}ms.")
 
 @bot.command
+@lightbulb.command("ic", description="ic")
+@lightbulb.implements(lightbulb.SlashCommand)
+async def ping(ctx: lightbulb.SlashContext) -> None:
+    await ctx.respond(f"🇮 🇨")
+
+@bot.command
 @lightbulb.option(
     "ping", "User to ping. Don't abuse.", type=hikari.User, required=False
 )
