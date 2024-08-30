@@ -1,8 +1,6 @@
 import os
 from typing import Optional
-from database import db
 from database import collection
-import re
 
 import dotenv
 import hikari
@@ -10,11 +8,8 @@ import lightbulb
 import asyncio
 import requests
 import urllib.parse
-import pymongo
-from pymongo import MongoClient
 from lightbulb.ext import tasks
 from hikari import Intents
-from hikari import Snowflake
 
 dotenv.load_dotenv()
 
@@ -203,6 +198,21 @@ async def on_reaction_create(event: hikari.ReactionAddEvent) -> None:
         #except hikari.errors.NotFoundError:
             # Message not found
         #    pass
+
+@bot.listen(hikari.MemberCreateEvent)
+async def on_member_join(event: hikari.MemberCreateEvent) -> None:
+    """
+    Sends a message to an hardcoded modlog channel any time a new user joins the guild (server).
+    """
+    member = event.member
+    modlog_channel = await event.app.rest.fetch_channel(931378204881608754)
+
+    # Generate embed with the user name, image and account creation date
+    embed = hikari.Embed(title="New user!", color=hikari.Color.from_hex_code("#ff6b00"), description=f"<@{member.id}> just joined the server!")
+    embed.set_author(name=member.display_name, icon=member.avatar_url)
+    embed.add_field("Account created on:", inline=False, value=f"{member.created_at.strftime("%Y-%m-%d %H:%M:%S")} (UTC)")
+
+    modlog_channel.send(embed)
 
 if __name__ == "__main__":
     bot.run()

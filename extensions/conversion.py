@@ -1,6 +1,3 @@
-from typing import Optional
-
-import hikari
 import lightbulb
 
 convert_plugin = lightbulb.Plugin("Conversion")
