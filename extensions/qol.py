@@ -1,4 +1,3 @@
-from typing import Optional
 import re
 
 import hikari

@@ -1,5 +1,4 @@
 from wordcloud import WordCloud, STOPWORDS
-import matplotlib.pyplot as plt
 from pymongo import MongoClient
 from typing import Optional
 import re

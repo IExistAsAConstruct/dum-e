@@ -1,8 +1,6 @@
 import os
 from typing import Optional
-from database import db
 from database import collection
-import re
 
 import dotenv
 import hikari
@@ -10,11 +8,8 @@ import lightbulb
 import asyncio
 import requests
 import urllib.parse
-import pymongo
-from pymongo import MongoClient
 from lightbulb.ext import tasks
 from hikari import Intents
-from hikari import Snowflake
 
 dotenv.load_dotenv()
 

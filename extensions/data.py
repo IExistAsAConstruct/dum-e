@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 from datetime import timedelta
 from typing import Optional
 from collections import Counter
-from database import db
 from database import kek_counter
 import requests
 import random
@@ -10,7 +9,6 @@ import re
 import math
 
 import hikari
-from hikari import User
 import lightbulb
 
 data_plugin = lightbulb.Plugin("Data")
