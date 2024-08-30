@@ -212,7 +212,7 @@ async def on_member_join(event: hikari.MemberCreateEvent) -> None:
     embed.set_author(name=member.display_name, icon=member.avatar_url)
     embed.add_field("Account created on:", inline=False, value=f"{member.created_at.strftime("%Y-%m-%d %H:%M:%S")} (UTC)")
 
-    modlog_channel.send(embed)
+    await modlog_channel.send(embed)
 
 if __name__ == "__main__":
     bot.run()
