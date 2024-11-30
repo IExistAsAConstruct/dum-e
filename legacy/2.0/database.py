@@ -1,8 +1,8 @@
 from pymongo import MongoClient
 import os
-import dotenv
+from dotenv import main
 
-dotenv.load_dotenv()
+main.load_dotenv()
 
 cluster = MongoClient(f"{os.getenv('DB_URI')}")
 db = cluster["based_count"]

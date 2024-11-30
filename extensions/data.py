@@ -1,5 +1,8 @@
 from datetime import datetime, timezone, timedelta
 from collections import Counter
+
+from pymongo import ReturnDocument
+
 from database import kek_counter
 import random
 import re
@@ -260,137 +263,90 @@ class Leaderboard(
         except Exception as e:
             await ctx.respond(f"An error occurred: {str(e)}", ephemeral=True)
 
+
 @loader.listener(hikari.GuildMessageCreateEvent)
 async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
+    # Skip bot messages immediately
+    if event.is_bot or event.content is None:
+        return
+
     message = event.message
     user_id = event.author_id
     user = await event.app.rest.fetch_member(event.guild_id, user_id)
     channel_id = event.channel_id
 
-    if event.is_bot:
+    # Preprocess content
+    content = re.sub(r"[',.?]", "", event.content.lower())
+
+    # Early return if not a "based" or "cringe" message
+    if not (content.startswith("based") or content.startswith("cringe")):
         return
 
-    if event.content is not None:
-        content = re.sub(r"[',.?]", "", event.content.lower())
+    # Determine target message (replied or previous message)
+    target_message = (
+        event.message.referenced_message
+        if event.message.referenced_message
+        else (await event.app.rest.fetch_messages(channel_id, before=message.id))[0]
+    )
 
-        if event.message.referenced_message:
+    # Prevent self-rating
+    if target_message.author.id == message.author.id:
+        print(f"{user.username} tried (and failed) to {'base' if content.startswith('based') else 'cringe'} themselves")
+        return
 
-            replied_message = event.message.referenced_message
+    # Check cooldown
+    last_based_time = user_based_cooldown.get(user.id, datetime.min.replace(tzinfo=timezone.utc))
+    cooldown_duration = timedelta(minutes=1)
 
-            if content.startswith("based"):
+    if datetime.now(timezone.utc) - last_based_time < cooldown_duration:
+        return
 
-                if replied_message.author.id == message.author.id:
-                    print(f"{user.username} tried (and failed) to based themselves")
-                    return
+    # Determine increment value
+    increment = 1 if content.startswith("based") else -1
 
-                user_data = kek_counter.find_one({"user_id": str(replied_message.author.id)})
-
-                # If the user does not exist, insert the data
-                if not user_data:
-                    user_data = {
-                        "username": message.author.username,
-                        "display_name": message.author.display_name,
-                        "user_id": str(message.author.id),
-                        "rank": "Rankless",
-                        "keks": [],
-                        "kek_count": 0,
-                        "based_count": 0,
-                        "basedbucks": 500,
-                        "loan_debt": [],
-                        "kekbanned": False
-                    }
-                    kek_counter.insert_one(user_data)
-
-                last_based_time = user_based_cooldown.get(user.id, datetime.min.replace(tzinfo=timezone.utc))
-
-                cooldown_duration = timedelta(minutes=1)
-
-                if datetime.now(timezone.utc) - last_based_time >= cooldown_duration:
-                    # Update the document with kek information
-                    kek_counter.update_one(
-                        {"user_id": str(replied_message.author.id)},
-                        {
-                            "$inc": {"based_count": 1},
-                        },
-                        upsert=True,
-                    )
-
-                    # Update the last "based" time for the user in the cooldown dictionary
-                    user_based_cooldown[user.id] = datetime.now(timezone.utc)
-
-                    print(f"{user.username} gave {replied_message.author.username} a based")
-
-                    based_count = user_data["based_count"] + 1
-
-                    if based_count % 10 == 0:
-                        # Get the user and channel objects
-                        channel = await event.app.rest.fetch_channel(channel_id)
-
-                        if channel:
-                            # Send congratulatory message
-                            await event.app.rest.create_message(
-                                channel.id,
-                                content=f"{replied_message.author.username} reached a based count milestone of {based_count}!"
-                            )
-                            return
-
-        if content.startswith("based"):
-            messages = await event.app.rest.fetch_messages(channel_id, before=message.id)
-            messages = messages[0]
-
-            if messages.author.id == message.author.id:
-                print(f"{user.username} tried (and failed) to based themselves")
-                return
-
-            user_data = kek_counter.find_one({"user_id": str(messages.author.id)})
-
-            # If the user does not exist, insert the data
-            if not user_data:
-                user_data = {
-                    "username": message.author.username,
-                    "display_name": message.author.display_name,
-                    "user_id": str(message.author.id),
+    # Prepare user data, creating if not exists
+    try:
+        user_data = kek_counter.find_one_and_update(
+            {"user_id": str(target_message.author.id)},
+            {
+                "$set": {
+                    "username": target_message.author.username,
+                    "display_name": target_message.author.display_name,
                     "rank": "Rankless",
                     "keks": [],
                     "kek_count": 0,
-                    "based_count": 0,
                     "basedbucks": 500,
                     "loan_debt": [],
                     "kekbanned": False
-                }
-                kek_counter.insert_one(user_data)
+                },
+                "$inc": {"based_count": increment}
+            },
+            upsert=True,
+            return_document=ReturnDocument.AFTER
+        )
 
-            last_based_time = user_based_cooldown.get(user.id, datetime.min.replace(tzinfo=timezone.utc))
+        # Update cooldown
+        user_based_cooldown[user.id] = datetime.now(timezone.utc)
 
-            cooldown_duration = timedelta(minutes=1)
+        # Log action
+        action = "based" if content.startswith("based") else "cringed"
+        print(f"{user.username} {action} {target_message.author.username}")
 
-            if datetime.now(timezone.utc) - last_based_time >= cooldown_duration:
-                # Update the document with kek information
-                kek_counter.update_one(
-                    {"user_id": str(messages.author.id)},
-                    {
-                        "$inc": {"based_count": 1},
-                    },
-                    upsert=True,
+        # Milestone check
+        based_count = user_data['based_count']
+        if based_count % 10 == 0:
+            channel = await event.app.rest.fetch_channel(channel_id)
+            if channel:
+                await event.app.rest.create_message(
+                    channel.id,
+                    content=f"{target_message.author.username} reached a based count milestone of {based_count}!"
                 )
 
-                # Update the last "based" time for the user in the cooldown dictionary
-                user_based_cooldown[user.id] = datetime.now(timezone.utc)
-
-                print(f"{user.username} gave {messages.author.username} a based")
-
-                based_count = user_data["based_count"] + 1
-
-                if based_count % 10 == 0:
-                    # Get the user and channel objects
-                    channel = await event.app.rest.fetch_channel(channel_id)
-
-                    if channel:
-                        # Send congratulatory message
-                        await event.app.rest.create_message(
-                            channel.id,
-                            content=f"{messages.author.username} reached a based count milestone of {based_count}!"
-                        )
+    except Exception as e:
+        print(f"Error processing message: {e}")
+        # Optionally log the full traceback
+        import traceback
+        traceback.print_exc()
 
 
 async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message, leaderboard_channel):
@@ -630,7 +586,8 @@ async def process_kek(
         member: hikari.Member,
         user: hikari.User,
         kek_type: str,
-        guild_id: int
+        guild_id: int,
+        is_april_fools: bool
 ) -> None:
     """Process a kek reaction and update the database."""
     user_data = kek_counter.find_one({"user_id": str(message.author.id)})
@@ -664,7 +621,7 @@ async def process_kek(
 
     if not existing_kek:
         update_data = {
-            "$inc": {"kek_count": 1 if kek_type == "kek" else -1},
+            "$inc": {"kek_count": 1 if kek_type == "kek" else -1 if kek_type == "ANTIkek" or is_april_fools else 0},
             "$set": {"display_name": member.display_name},
             "$push": {
                 "keks": {
@@ -692,6 +649,9 @@ async def kek_counting(event: hikari.GuildReactionAddEvent) -> None:
         return
 
     try:
+
+        is_april_fools = datetime.now().month == 4 and datetime.now().day == 1
+
         # Fetch necessary data concurrently
         user, channel, message = await asyncio.gather(
             get_member_safe(event.app, event.guild_id, event.user_id),
@@ -715,16 +675,16 @@ async def kek_counting(event: hikari.GuildReactionAddEvent) -> None:
         if not member or user.id == member.id:
             return
 
-        # Check if user is kekbanned
-        user_data = kek_counter.find_one({"user_id": str(user.id)})
-        if user_data and user_data.get("kekbanned", False):
-            dm_channel = await event.app.rest.create_dm_channel(user.id)
-            await dm_channel.send(f"Sorry {user.mention}, you are banned from participating in the kekonomy.")
-            return
-
-        # Process reaction
+        # Modified emoji handling
         guild = await channel.app.rest.fetch_guild(event.guild_id)
-        emoji = await event.app.rest.fetch_emoji(guild, event.emoji_id)
+
+        # Check if it's a custom emoji
+        if event.emoji_id:
+            emoji = await event.app.rest.fetch_emoji(guild, event.emoji_id)
+        else:
+            # Handle Unicode emoji case
+            emoji = event.emoji_name  # Use the emoji name directly
+
         kek_type = get_kek_type(emoji)
         if not kek_type:
             return
@@ -732,9 +692,16 @@ async def kek_counting(event: hikari.GuildReactionAddEvent) -> None:
         if kek_type == "ANTIkek" and await check_antikek_limit(str(user.id)):
             return
 
+        # Check if user is kekbanned
+        user_data = kek_counter.find_one({"user_id": str(user.id)})
+        if user_data and user_data.get("kekbanned", False):
+            dm_channel = await event.app.rest.create_dm_channel(user.id)
+            await dm_channel.send(f"Sorry {user.mention}, you are banned from participating in the kekonomy.")
+            return
+
         # Process kek and update leaderboard
         await asyncio.gather(
-            process_kek(kek_counter, message, member, user, kek_type, event.guild_id),
+            process_kek(kek_counter, message, member, user, kek_type, event.guild_id, is_april_fools),
             update_leaderboard(event.guild_id, member, user, kek_type, message,
                                await event.app.rest.fetch_channel(LEADERBOARD_CHANNEL_ID)),
             update_rank(str(message.author.id), member, channel)
