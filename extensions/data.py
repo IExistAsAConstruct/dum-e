@@ -312,14 +312,16 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                 "$set": {
                     "username": target_message.author.username,
                     "display_name": target_message.author.display_name,
+                },
+                "$inc": {"based_count": increment},
+                "$setOnInsert": {
                     "rank": "Rankless",
                     "keks": [],
                     "kek_count": 0,
                     "basedbucks": 500,
                     "loan_debt": [],
                     "kekbanned": False
-                },
-                "$inc": {"based_count": increment}
+                }
             },
             upsert=True,
             return_document=ReturnDocument.AFTER
