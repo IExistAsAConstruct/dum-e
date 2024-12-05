@@ -118,7 +118,7 @@ class GetInfo(
         embed.add_field('Bot?', 'Yes' if member_got.is_bot else 'No', inline=True)
         embed.add_field(
             'Created account on',
-            f'<t:{int(member_got.joined_at.timestamp())}:d>\n(<t:{int(member_got.created_at.timestamp())}:R>)',
+            f'<t:{int(member_got.created_at.timestamp())}:d>\n(<t:{int(member_got.created_at.timestamp())}:R>)',
             inline=True
         )
         embed.add_field(
