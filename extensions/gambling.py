@@ -458,6 +458,106 @@ class GetList(
 
 # Banking Module
 
+def calculate_loan_apr(loan_amount: float, credit_score: int, max_safe_loan: float = 50000) -> float:
+    """
+    Calculate APR with exponential penalties for excessive loan amounts.
+
+    Args:
+    - loan_amount: Amount requested for loan
+    - credit_score: Borrower's credit score
+    - max_safe_loan: Threshold for what's considered a 'normal' loan
+
+    Returns:
+    - APR with escalating penalties for large loans
+    """
+    # Implement hard limits
+    if loan_amount > 1000000:  # Extreme loan cap
+        raise ValueError("Loan amount exceeds maximum allowed limit")
+
+    # Base rate calculation
+    base_rate = 0.05  # 5% base
+
+    # Credit score factor
+    credit_score_factor = max(0, (850 - credit_score) * 0.0003)
+
+    # Exponential loan penalty
+    if loan_amount > max_safe_loan:
+        # Quadratic penalty for loans beyond safe threshold
+        # This makes large loans prohibitively expensive
+        excess_multiplier = ((loan_amount - max_safe_loan) / max_safe_loan) ** 2
+        loan_penalty = base_rate * excess_multiplier
+    else:
+        loan_penalty = 0
+
+    # Calculate final APR
+    apr = base_rate + credit_score_factor + loan_penalty
+
+    # Hard cap on APR
+    return min(apr, 0.50)  # 50% max APR to prevent infinite debt
+
+
+def can_take_loan(credit_score: int, loan_amount: float, total_existing_debt: float) -> bool:
+    """
+    Enhanced loan eligibility check
+
+    Args:
+    - credit_score: User's credit score
+    - loan_amount: Requested loan amount
+    - total_existing_debt: Total current debt
+
+    Returns:
+    - Boolean indicating loan eligibility
+    """
+    # Absolute credit score threshold
+    if credit_score < 350:
+        return False
+
+    # Debt-to-income ratio check
+    max_debt_ratio = 0.4  # 40% of total potential debt
+    if total_existing_debt + loan_amount > credit_score * 100:
+        return False
+
+    # Graduated loan limits based on credit score
+    if 350 <= credit_score < 500:
+        max_allowed_loan = 5000 * ((credit_score - 350) / 150)
+        return loan_amount <= max_allowed_loan
+
+    # Additional large loan restrictions
+    if loan_amount > 50000 and credit_score < 700:
+        return False
+
+    return True
+
+
+def calculate_credit_score_change(loan_amount: float, current_score: int, is_repayment: bool = False) -> int:
+    """
+    Calculate dynamic credit score changes based on loan behavior
+
+    Args:
+    - loan_amount: Amount of the loan or repayment
+    - current_score: Current credit score
+    - is_repayment: Whether this is a loan repayment
+
+    Returns:
+    - Credit score change
+    """
+    if is_repayment:
+        # Repayment bonuses
+        if loan_amount >= 10000:
+            return 10  # Significant repayment bonus
+        elif loan_amount >= 5000:
+            return 5  # Moderate repayment bonus
+        else:
+            return 2  # Small repayment bonus
+    else:
+        # Loan penalties
+        if loan_amount >= 50000:
+            return -20  # Severe penalty for large loans
+        elif loan_amount >= 10000:
+            return -10  # Moderate penalty
+        else:
+            return -5  # Minor penalty
+
 @loader.task(lightbulb.uniformtrigger(hours=24))
 async def daily_interest():
     debt_query = {
@@ -483,6 +583,145 @@ async def daily_interest():
             kek_counter.update_one({'_id': doc['_id']}, {'$set': {'loan_debt': doc['loan_debt']}})
             kek_counter.update_one({'_id': doc['_id']}, {'$set': {'total_debt': doc['total_debt']}})
             print("data modified")
+
+@loader.command
+class BankLoan(
+    lightbulb.SlashCommand,
+    name="bank-loan",
+    description="Borrow Basedbucks from the bank. Low credit scores are prohibited from taking loans."
+):
+    amount = lightbulb.number("amount", "Amount of Basedbucks to borrow.", min_value=1)
+
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context):
+        player_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
+        total_debt = player_data.get("total_debt", 0)
+        total_loans = sum(debt["loan amount"] for debt in player_data.get("loan_debt", []))
+        credit_score = player_data.get("credit_score", 700)  # Assuming a default credit score of 700
+
+        debt_threshold = 500000  # Set your debt threshold here
+        loan_threshold = 10  # Set your loan threshold here
+
+        if total_debt >= debt_threshold:
+            await ctx.respond("You cannot take any more loans because your total debt exceeds the allowed limit!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        if len(player_data.get("loan_debt", [])) >= loan_threshold:
+            await ctx.respond("You cannot take any more loans because you have too many loans!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        if not can_take_loan(credit_score, self.amount, total_debt):
+            await ctx.respond("You cannot take this loan due to credit restrictions!",
+                              flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        apr = calculate_loan_apr(self.amount, credit_score)
+        if self.amount <= 0:
+            await ctx.respond("You can't borrow zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        # Calculate new credit score
+        credit_score_change = calculate_credit_score_change(self.amount, credit_score)
+        new_credit_score = max(0, min(850, credit_score + credit_score_change))
+
+        kek_counter.update_one(
+            {"user_id": str(ctx.member.id)},
+            {
+                "$inc": {'total_debt': self.amount, 'basedbucks': self.amount},
+                "$push": {
+                    "loan_debt": {
+                        "date": datetime.now(timezone.utc),
+                        "loan amount": self.amount,
+                        "apr": apr,
+                        "last_increase": datetime.now(timezone.utc)
+                    }
+                },
+                "$set": {"credit_score": new_credit_score}
+            },
+            upsert=True,
+        )
+        await ctx.respond(f"{ctx.member.mention} borrowed {self.amount} Basedbucks from the bank! Your new credit score is {new_credit_score}.")
+
+@loader.command
+class RepayBank(
+    lightbulb.SlashCommand,
+    name="bank-repay",
+    description="Repay Basedbucks to the bank."
+):
+    amount = lightbulb.number("amount", "Amount of Basedbucks to repay.", min_value=1)
+
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context):
+
+        player_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
+        original_amount = self.amount
+
+        if self.amount > player_data["basedbucks"]:
+            await ctx.respond("You don't have enough Basedbucks to repay that much!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+        if self.amount <= 0:
+            await ctx.respond("You can't repay zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        total_debt = player_data.get("total_debt", 0)
+        if self.amount > total_debt:
+            await ctx.respond("You're trying to repay more than your total debt!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        for debt in reversed(player_data["loan_debt"]):
+            if debt["loan amount"] > 0:
+                repayment_amount = min(self.amount, debt["loan amount"])
+                debt["loan amount"] -= repayment_amount
+                self.amount -= repayment_amount
+                total_debt -= repayment_amount
+                if debt["loan amount"] <= 0:
+                    player_data["loan_debt"].remove(debt)
+                if self.amount <= 0:
+                   break
+
+        # Calculate new credit score
+        credit_score_change = calculate_credit_score_change(self.amount, player_data.get("credit_score", 700), is_repayment=True)
+        new_credit_score = min(100, player_data.get("credit_score", 100) + credit_score_change)
+
+        kek_counter.update_one(
+            {"user_id": str(ctx.member.id)},
+            {"$set": {"loan_debt": player_data["loan_debt"], "total_debt": total_debt, "credit_score": new_credit_score},
+            "$inc": {"basedbucks": original_amount * -1}}
+        )
+
+        await ctx.respond(f"{ctx.member.mention} repaid {original_amount} Basedbucks to the bank! Your new credit score is {new_credit_score}.")
+
+@loader.command
+class CheckDebt(
+    lightbulb.SlashCommand,
+    name="bank-alldebt",
+    description="Check how much total debt you have."
+):
+
+        @lightbulb.invoke
+        async def invoke(self, ctx: lightbulb.Context):
+
+            player_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
+            debts = []
+            debt_date = []
+            for data in player_data['loan_debt']:
+                debts.append(data['loan amount'])
+                debt_date.append(data['date'])
+
+            embed = hikari.Embed(
+                title=f"{ctx.member.username}'s Total Debt",
+                description=f"Total Debt: {player_data['total_debt']} Basedbucks"
+            )
+
+            for i, (debt_amount, debt_time) in enumerate(zip(debts, debt_date), start=1):
+                debt_time_str = debt_time.strftime("%Y-%m-%d %H:%M:%S")
+                embed.add_field(
+                    name=f"Debt {i}",
+                    value=f"Amount: {debt_amount}\nBorrowed at: {debt_time_str}",
+                    inline=False
+                )
+
+            await ctx.respond(embed=embed)
 
 @loader.command
 class WireMoney(
@@ -545,113 +784,3 @@ class WireMoney(
         await ctx.respond(
             f"{ctx.member.mention} wired {self.amount} {'Kek' if self.type == 'Keks' and self.amount == 1 else 'Keks' if self.type == 'Keks' else 'Basedbuck' if self.amount == 1 else 'Basedbucks'} to {self.user.mention}!"
         )
-
-@loader.command
-class BankLoan(
-    lightbulb.SlashCommand,
-    name="bank-loan",
-    description="Borrow Basedbucks from the bank."
-):
-    amount = lightbulb.number("amount", "Amount of Basedbucks to borrow.", min_value=1)
-
-    @lightbulb.invoke
-    async def invoke(self, ctx: lightbulb.Context):
-
-        apr = 0.03 if self.amount < 5000 else 0.07
-        if self.amount <= 0:
-            await ctx.respond("You can't borrow zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
-            return
-        kek_counter.update_one(
-            {"user_id": str(ctx.member.id)},
-            {
-                "$inc": {'total_debt': self.amount, 'basedbucks': self.amount},
-                "$push": {
-                    "loan_debt": {
-                        "date": datetime.now(timezone.utc),
-                        "loan amount": self.amount,
-                        "apr": apr,
-                        "last_increase": datetime.now(timezone.utc)
-                    }
-                },
-            },
-            upsert=True,
-
-        )
-        await ctx.respond(f"{ctx.member.mention} borrowed {self.amount} Basedbucks from the bank!")
-
-@loader.command
-class RepayBank(
-    lightbulb.SlashCommand,
-    name="bank-repay",
-    description="Repay Basedbucks to the bank."
-):
-    amount = lightbulb.number("amount", "Amount of Basedbucks to repay.", min_value=1)
-
-    @lightbulb.invoke
-    async def invoke(self, ctx: lightbulb.Context):
-
-        player_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
-        original_amount = self.amount
-
-        if self.amount > player_data["basedbucks"]:
-            await ctx.respond("You don't have enough Basedbucks to repay that much!", flags=hikari.MessageFlag.EPHEMERAL)
-            return
-        if self.amount <= 0:
-            await ctx.respond("You can't repay zero or negative money!", flags=hikari.MessageFlag.EPHEMERAL)
-            return
-
-        total_debt = player_data.get("total_debt", 0)
-        if self.amount > total_debt:
-            await ctx.respond("You're trying to repay more than your total debt!", flags=hikari.MessageFlag.EPHEMERAL)
-            return
-
-        for debt in reversed(player_data["loan_debt"]):
-            if debt["loan amount"] > 0:
-                repayment_amount = min(self.amount, debt["loan amount"])
-                debt["loan amount"] -= repayment_amount
-                self.amount -= repayment_amount
-                total_debt -= repayment_amount
-                if debt["loan amount"] <= 0:
-                    player_data["loan_debt"].remove(debt)
-                if self.amount <= 0:
-                    break
-
-        kek_counter.update_one(
-            {"user_id": str(ctx.member.id)},
-            {"$set": {"loan_debt": player_data["loan_debt"], "total_debt": total_debt},
-            "$inc": {"basedbucks": original_amount * -1}}
-        )
-
-        await ctx.respond(f"{ctx.member.mention} repaid {original_amount} Basedbucks to the bank!")
-
-@loader.command
-class CheckDebt(
-    lightbulb.SlashCommand,
-    name="bank-alldebt",
-    description="Check how much total debt you have."
-):
-
-        @lightbulb.invoke
-        async def invoke(self, ctx: lightbulb.Context):
-
-            player_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
-            debts = []
-            debt_date = []
-            for data in player_data['loan_debt']:
-                debts.append(data['loan amount'])
-                debt_date.append(data['date'])
-
-            embed = hikari.Embed(
-                title=f"{ctx.member.username}'s Total Debt",
-                description=f"Total Debt: {player_data['total_debt']} Basedbucks"
-            )
-
-            for i, (debt_amount, debt_time) in enumerate(zip(debts, debt_date), start=1):
-                debt_time_str = debt_time.strftime("%Y-%m-%d %H:%M:%S")
-                embed.add_field(
-                    name=f"Debt {i}",
-                    value=f"Amount: {debt_amount}\nBorrowed at: {debt_time_str}",
-                    inline=False
-                )
-
-            await ctx.respond(embed=embed)

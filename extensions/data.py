@@ -176,6 +176,11 @@ class GetInfo(
             f"{basedbucks} {'Basedbucks' if basedbucks != 1 else 'Basedbuck'} in the bank",
             inline=True
         )
+        embed.add_field(
+            "Credit Score",
+            f"{user_data.get('credit_score', 700)}",
+            inline=True
+        )
 
         await ctx.respond(embed=embed)
 
@@ -320,6 +325,7 @@ async def on_message_create(event: hikari.GuildMessageCreateEvent) -> None:
                     "kek_count": 0,
                     "basedbucks": 500,
                     "loan_debt": [],
+                    "credit_score": 100,
                     "kekbanned": False
                 }
             },
@@ -440,6 +446,7 @@ class Kekban(
                 "based_count": 0,
                 "basedbucks": 500,
                 "loan_debt": [],
+                "credit_score": 100,
                 "kekbanned": False
             }
             kek_counter.insert_one(user_data)
@@ -485,6 +492,7 @@ class Kekunban(
                 "based_count": 0,
                 "basedbucks": 500,
                 "loan_debt": [],
+                "credit_score": 100,
                 "kekbanned": False
             }
             kek_counter.insert_one(user_data)
@@ -605,6 +613,7 @@ async def process_kek(
             "based_count": 0,
             "basedbucks": INITIAL_BASEDBUCKS,
             "loan_debt": [],
+            "credit_score": 100,
             "kekbanned": False
         }
         kek_counter.insert_one(user_data)
