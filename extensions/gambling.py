@@ -681,7 +681,7 @@ class RepayBank(
 
         # Calculate new credit score
         credit_score_change = calculate_credit_score_change(self.amount, player_data.get("credit_score", 700), is_repayment=True)
-        new_credit_score = min(100, player_data.get("credit_score", 100) + credit_score_change)
+        new_credit_score = min(850, player_data.get("credit_score") + credit_score_change)
 
         kek_counter.update_one(
             {"user_id": str(ctx.member.id)},
@@ -717,7 +717,7 @@ class CheckDebt(
                 debt_time_str = debt_time.strftime("%Y-%m-%d %H:%M:%S")
                 embed.add_field(
                     name=f"Debt {i}",
-                    value=f"Amount: {debt_amount}\nBorrowed at: {debt_time_str}",
+                    value=f"Amount: {debt_amount}\nBorrowed at: {debt_time_str}\nAPR: {player_data['loan_debt'][i-1]['apr']}",
                     inline=False
                 )
 
