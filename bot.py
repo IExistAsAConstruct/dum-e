@@ -1,15 +1,18 @@
 import os
+import random
 
 from dotenv import main
 from pyexpat.errors import messages
 
-from database import collection
+import extensions.gambling
+from database import collection, stocks
 import asyncio
 from typing import List, Dict, Any, Sequence
 
 import hikari
 from hikari import Intents
 import lightbulb
+
 
 main.load_dotenv()
 
@@ -30,7 +33,9 @@ CHANNEL_IDS = [
 @bot.listen(hikari.StartingEvent)
 async def on_starting(_: hikari.StartingEvent) -> None:
     # Load any extensions
+    print("Loading extensions...")
     await client.load_extensions("extensions.data", "extensions.gambling", "extensions.word_cloud")
+    extensions.gambling.initialize_stocks(stocks)
     # Start the bot - make sure commands are synced properly
     await client.start()
 
@@ -88,7 +93,6 @@ async def collect_messages() -> None:
 
             if message_data:
                 collection.insert_many(message_data)
-
 
 @client.register()
 class WordsInMyMouth(

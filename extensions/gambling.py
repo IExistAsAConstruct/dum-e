@@ -3,7 +3,8 @@ import lightbulb
 import random
 import string
 
-from database import kek_counter, gambling_list
+
+from database import kek_counter, gambling_list, stocks
 
 from datetime import datetime, timezone
 from lightbulb import Choice
@@ -13,6 +14,13 @@ import parsedatetime
 
 loader = lightbulb.Loader()
 OWNER_ID = 453445704690434049
+
+STOCK_SYMBOLS = {
+    "KEKI": "Kekistocracy Inc.",
+    "BSDL": "BasedLife LLC",
+    "FUNI": "FunniColors",
+    "CRYG": "Cring Cryptoo"
+}
 
 @lightbulb.hook(lightbulb.ExecutionSteps.CHECKS)
 async def me_only(_: lightbulb.ExecutionPipeline, ctx: lightbulb.Context) -> None:
@@ -784,3 +792,338 @@ class WireMoney(
         await ctx.respond(
             f"{ctx.member.mention} wired {self.amount} {'Kek' if self.type == 'Keks' and self.amount == 1 else 'Keks' if self.type == 'Keks' else 'Basedbuck' if self.amount == 1 else 'Basedbucks'} to {self.user.mention}!"
         )
+
+# The Stock Market
+
+VOLATILITY_RANGE = (0.01, 0.15)  # 1-15% daily price change
+MAX_DAILY_CHANGE = 0.2  # 20% max daily change
+MIN_STOCK_PRICE = 1  # Minimum stock price
+MAX_STOCK_PRICE = 1000  # Maximum stock price
+
+def initialize_stocks(stocks_collection):
+    """
+    Initialize stocks with starting prices and custom volatilities.
+
+    Args:
+        stocks_collection: MongoDB collection for stocks
+
+    Returns:
+        bool: True if stocks were initialized, False if already existed
+    """
+    # Check if stocks already exist
+    existing_stocks = stocks_collection.find_one({})
+    if existing_stocks and "stocks" in existing_stocks:
+        print("Stocks already initialized. Skipping initialization.")
+        return False
+
+    # Initial stock data with custom volatilities
+    # Volatility represents the maximum daily price change percentage
+    initial_stocks = {
+        "KEKI": {
+            "name": "Kekistocracy Inc.",
+            "price": 100.00,
+            "volatility": 0.15,  # High volatility (15%)
+            "last_updated": datetime.now(timezone.utc)
+        },
+        "BSDL": {
+            "name": "BasedLife LLC",
+            "price": 85.50,
+            "volatility": 0.10,  # Moderate volatility (10%)
+            "last_updated": datetime.now(timezone.utc)
+        },
+        "FUNI": {
+            "name": "FunniColors",
+            "price": 75.25,
+            "volatility": 0.08,  # Lower volatility (8%)
+            "last_updated": datetime.now(timezone.utc)
+        },
+        "CRYG": {
+            "name": "Cring Cryptoo",
+            "price": 55.75,
+            "volatility": 0.20,  # Very high volatility (20%)
+            "last_updated": datetime.now(timezone.utc)
+        }
+    }
+
+    # Update the stocks collection
+    stocks_collection.update_one(
+        {},  # Match the single document
+        {"$set": {"stocks": initial_stocks}},
+        upsert=True  # Create if doesn't exist
+    )
+
+    print("Stocks initialized successfully!")
+    return True
+
+
+# You'll need to modify the generate_stock_price_change function to use stock-specific volatility
+def generate_stock_price_change(current_price, stock_volatility):
+    """
+    Generate a more realistic stock price change using a random walk model
+    with stock-specific volatility.
+
+    Args:
+        current_price (float): Current stock price
+        stock_volatility (float): Maximum daily volatility for this stock
+
+    Returns:
+        float: New stock price after simulated change
+    """
+    # Randomly choose volatility within the stock's volatility range
+    volatility = random.uniform(0.01, stock_volatility)
+
+    # Generate price change with some randomness and trend
+    change_direction = random.choice([-1, 1])  # Randomly go up or down
+    price_change = current_price * volatility * change_direction
+
+    # Limit the maximum change percentage
+    max_change = current_price * MAX_DAILY_CHANGE
+    price_change = max(-max_change, min(max_change, price_change))
+
+    new_price = current_price + price_change
+
+    # Enforce price boundaries
+    return max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price))
+
+
+# Update the update_stock_prices function to use stock-specific volatility
+@loader.task(lightbulb.uniformtrigger(minutes=30))
+async def update_stock_prices():
+    """
+    Periodically update stock prices with some randomness in timing.
+    """
+    # Randomize the actual update interval slightly
+    variation = random.uniform(0.8, 1.2)
+
+    # Find existing stocks or initialize if not present
+    existing_stocks = stocks.find_one({}) or {"stocks": {}}
+
+    for symbol, stock_info in existing_stocks["stocks"].items():
+        # Get current stock price and volatility
+        current_price = stock_info.get("price", 100)
+        stock_volatility = stock_info.get("volatility", 0.15)  # Default to 15% if not specified
+
+        # Generate new price with stock-specific volatility
+        new_price = generate_stock_price_change(current_price, stock_volatility)
+
+        # Update stock data
+        stocks.update_one(
+            {},  # Update the single document
+            {
+                "$set": {
+                    f"stocks.{symbol}": {
+                        "name": stock_info["name"],
+                        "price": round(new_price, 2),
+                        "volatility": stock_volatility,
+                        "last_updated": datetime.now(timezone.utc)
+                    }
+                }
+            },
+            upsert=True  # Create document if it doesn't exist
+        )
+
+
+@loader.command
+class BuyStock(
+    lightbulb.SlashCommand,
+    name="buy-stock",
+    description="Buy stocks from the market"
+):
+    symbol = lightbulb.string("symbol", "Stock symbol to buy", choices=[
+        lightbulb.Choice("KEKI", "KEKI"),
+        lightbulb.Choice("BSDL", "BSDL"),
+        lightbulb.Choice("FUNI", "FUNI"),
+        lightbulb.Choice("CRYG", "CRYG")
+    ])
+    quantity = lightbulb.number("quantity", "Number of stocks to buy", min_value=1)
+
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context):
+        # Retrieve current stock information
+        stock_data = stocks.find_one({})
+        if not stock_data or self.symbol not in stock_data.get("stocks", {}):
+            await ctx.respond("Stock not found!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        current_stock = stock_data["stocks"][self.symbol]
+        total_cost = current_stock["price"] * self.quantity
+
+        # Check user's basedbucks
+        user_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
+        if not user_data or user_data.get("basedbucks", 0) < total_cost:
+            await ctx.respond(
+                f"You don't have enough Basedbucks to buy {self.quantity} stocks of {current_stock['name']}!",
+                flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        # Update user's stocks and basedbucks
+        kek_counter.update_one(
+            {"user_id": str(ctx.member.id)},
+            {
+                "$inc": {"basedbucks": -total_cost},
+                "$push": {
+                    "stocks": {
+                        "symbol": self.symbol,
+                        "quantity": self.quantity,
+                        "purchase_price": current_stock["price"],
+                        "purchase_date": datetime.now(timezone.utc)
+                    }
+                }
+            },
+            upsert=True
+        )
+
+        await ctx.respond(
+            f"Bought {self.quantity} stocks of {current_stock['name']} at ${current_stock['price']:.2f} each. "
+            f"Total cost: ${total_cost:.2f} Basedbucks.")
+
+
+@loader.command
+class SellStock(
+    lightbulb.SlashCommand,
+    name="sell-stock",
+    description="Sell stocks from your portfolio"
+):
+    symbol = lightbulb.string("symbol", "Stock symbol to sell", choices=[
+        lightbulb.Choice("KEKI", "KEKI"),
+        lightbulb.Choice("BSDL", "BSDL"),
+        lightbulb.Choice("FUNI", "FUNI"),
+        lightbulb.Choice("CRYG", "CRYG")
+    ])
+    quantity = lightbulb.number("quantity", "Number of stocks to sell", min_value=1)
+
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context):
+        # Retrieve current stock information
+        stock_data = stocks.find_one({})
+        if not stock_data or self.symbol not in stock_data.get("stocks", {}):
+            await ctx.respond("Stock not found!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        current_stock = stock_data["stocks"][self.symbol]
+        current_price = current_stock["price"]
+
+        # Check user's stock portfolio
+        user_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
+        if not user_data or "stocks" not in user_data:
+            await ctx.respond("You don't have any stocks to sell!", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        # Find matching stocks in portfolio
+        user_stocks = user_data["stocks"]
+        matching_stocks = [s for s in user_stocks if s["symbol"] == self.symbol]
+
+        total_user_stocks = sum(s["quantity"] for s in matching_stocks)
+        if total_user_stocks < self.quantity:
+            await ctx.respond(f"You only have {total_user_stocks} stocks of {current_stock['name']} to sell!",
+                              flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        # Calculate sale and potential profit/loss
+        total_sale_value = current_price * self.quantity
+
+        # Calculate total purchase price for sold stocks
+        remaining_quantity = self.quantity
+        total_purchase_price = 0
+        updated_portfolio = []
+
+        for stock in user_stocks:
+            if stock["symbol"] == self.symbol and remaining_quantity > 0:
+                sell_qty = min(stock["quantity"], remaining_quantity)
+
+                # Calculate the purchase price for sold stocks
+                if sell_qty == stock["quantity"]:
+                    total_purchase_price += stock["purchase_price"] * sell_qty
+                    remaining_quantity -= sell_qty
+                else:
+                    total_purchase_price += stock["purchase_price"] * sell_qty
+                    stock["quantity"] -= sell_qty
+                    updated_portfolio.append(stock)
+                    remaining_quantity = 0
+            else:
+                updated_portfolio.append(stock)
+
+        # Update user's stocks and basedbucks
+        kek_counter.update_one(
+            {"user_id": str(ctx.member.id)},
+            {
+                "$inc": {"basedbucks": total_sale_value},
+                "$set": {"stocks": updated_portfolio}
+            }
+        )
+
+        # Calculate profit/loss
+        profit_loss = total_sale_value - total_purchase_price
+        profit_loss_text = f"Profit/Loss: ${profit_loss:.2f} " + \
+                           ("(Profit)" if profit_loss > 0 else "(Loss)" if profit_loss < 0 else "")
+
+        await ctx.respond(
+            f"Sold {self.quantity} stocks of {current_stock['name']} at ${current_price:.2f} each.\n"
+            f"Total sale: ${total_sale_value:.2f} Basedbucks\n"
+            f"{profit_loss_text}")
+
+
+@loader.command
+class CheckStocks(
+    lightbulb.SlashCommand,
+    name="check-stocks",
+    description="Check current stock prices and your portfolio"
+):
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context):
+        # Retrieve current stock information
+        stock_data = stocks.find_one({})
+        user_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
+
+        # Create embedded message for stocks
+        embed = hikari.Embed(title="Stock Market Overview", color=hikari.Color.from_hex_code("#2ecc71"))
+
+        # Add current stock prices
+        if stock_data and "stocks" in stock_data:
+            for symbol, details in stock_data["stocks"].items():
+                embed.add_field(
+                    name=f"{symbol} - {details['name']}",
+                    value=(
+                        f"Current Price: ${details['price']:.2f}\n"
+                        f"Volatility: {details['volatility'] * 100:.1f}%"
+                    ),
+                    inline=False
+                )
+
+        # Add user's portfolio
+        if user_data and "stocks" in user_data:
+            portfolio_value = 0
+            portfolio_details = ""
+
+            stock_prices = stock_data.get("stocks", {}) if stock_data else {}
+
+            for stock in user_data["stocks"]:
+                current_stock = stock_prices.get(stock["symbol"], {})
+                current_price = current_stock.get("price", stock["purchase_price"])
+                total_value = current_price * stock["quantity"]
+                portfolio_value += total_value
+
+                # Calculate profit/loss
+                profit_loss = (current_price - stock["purchase_price"]) * stock["quantity"]
+                profit_loss_color = "🟢" if profit_loss > 0 else "🔴" if profit_loss < 0 else "➖"
+
+                portfolio_details += (
+                    f"{stock['symbol']} - {stock['quantity']} shares\n"
+                    f"Purchase Price: ${stock['purchase_price']:.2f}\n"
+                    f"Current Price: ${current_price:.2f}\n"
+                    f"Total Value: ${total_value:.2f}\n"
+                    f"Profit/Loss: {profit_loss_color} ${profit_loss:.2f}\n\n"
+                )
+
+            embed.add_field(
+                name="Your Portfolio",
+                value=portfolio_details or "No stocks owned",
+                inline=False
+            )
+            embed.add_field(
+                name="Total Portfolio Value",
+                value=f"${portfolio_value:.2f}",
+                inline=False
+            )
+
+        await ctx.respond(embed=embed)

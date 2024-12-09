@@ -164,13 +164,7 @@ class GetInfo(
             f"{round(len(keks_last_month) / 30, 2)} keks per day in last month",
             inline=True
         )
-        embed.add_field("Miscellaneous Data", "-------", inline=False)
-        embed.add_field(
-            "Kek:ANTIkek ratio",
-            f"{round(kek_amount / antikek_amount, 2) if antikek_amount != 0 else 'Infinite'} kek ratio",
-            inline=True
-        )
-        embed.add_field("Based Count", f"{based_count} total baseds", inline=True)
+        embed.add_field("Economic Data", "-------", inline=False)
         embed.add_field(
             "Basedbucks",
             f"{basedbucks} {'Basedbucks' if basedbucks != 1 else 'Basedbuck'} in the bank",
@@ -178,9 +172,35 @@ class GetInfo(
         )
         embed.add_field(
             "Credit Score",
-            f"{user_data.get('credit_score', 700)}",
+            f"{user_data.get('credit_score', "No credit score")}",
             inline=True
         )
+        embed.add_field(
+            "Stock Portfolio",
+            f"{len(user_data.get('stocks', []))} stocks owned",
+        )
+        embed.add_field(
+            "Total Portfolio Value",
+            f"${sum(stock['value'] for stock in user_data.get('stocks', [])):.2f}",
+            inline=True
+        )
+        embed.add_field(
+            "Top Stock",
+            f"{max(user_data.get('stocks', []), key=lambda x: x['value'], default={'name': 'None', 'value': 0})['name']}",
+            inline=True
+        )
+        embed.add_field(
+            "Top Stock Value",
+            f"${max(user_data.get('stocks', []), key=lambda x: x['value'], default={'name': 'None', 'value': 0})['value']:.2f}",
+            inline=True
+        )
+        embed.add_field("Miscellaneous Data", "-------", inline=False)
+        embed.add_field(
+            "Kek:ANTIkek ratio",
+            f"{round(kek_amount / antikek_amount, 2) if antikek_amount != 0 else 'Infinite'} kek ratio",
+            inline=True
+        )
+        embed.add_field("Based Count", f"{based_count} total baseds", inline=True)
 
         await ctx.respond(embed=embed)
 
