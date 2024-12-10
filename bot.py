@@ -1,9 +1,7 @@
 import os
-import random
 
 from dotenv import main
 from pyexpat.errors import messages
-
 import extensions.gambling
 from database import collection, stocks
 import asyncio
@@ -22,6 +20,9 @@ bot = hikari.GatewayBot(os.getenv("BOT_TOKEN"), intents=INTENTS)
 client = lightbulb.client_from_app(bot)
 
 bot.subscribe(hikari.StartingEvent, client.start)
+
+client.di.registry_for(lightbulb.di.Contexts.DEFAULT).register_factory(hikari.GatewayBot, lambda: bot)
+client.di.registry_for(lightbulb.di.Contexts.DEFAULT).register_factory(lightbulb.GatewayEnabledClient, lambda: client)
 
 CHANNEL_IDS = [
     826405737093136437, 1061281533681475614, 1001391150705418300,
@@ -132,8 +133,6 @@ class WordsInMyMouth(
             ephemeral=True
         )
 
-
-
 @client.register()
 class Ping(
     lightbulb.SlashCommand,
@@ -153,6 +152,35 @@ class IC(
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context) -> None:
         await ctx.respond(f"🇮 🇨")
+
+class MyMenu(lightbulb.components.Menu):
+    def __init__(self) -> None:
+        self.button = self.add_interactive_button(
+            hikari.ButtonStyle.PRIMARY,
+            self.on_button_press,
+            label="Press me!"
+        )
+
+    async def on_button_press(self, ctx: lightbulb.components.MenuContext) -> None:
+        await ctx.respond("Button pressed!", edit=True, components=[])
+        # Stop listening for additional interactions for this menu
+        ctx.stop_interacting()
+
+@client.register()
+class TestButton(
+    lightbulb.SlashCommand,
+    name="testbutton",
+    description="Test a button"
+):
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context) -> None:
+        menu = MyMenu()
+        resp = await ctx.respond("Press the button!", components=menu)
+
+        try:
+            await menu.attach(client, wait=True, timeout=30)
+        except asyncio.TimeoutError:
+            await ctx.edit_response(resp, "Timed out!", components=[])
 
 @bot.listen(hikari.ReactionAddEvent)
 async def on_reaction_create(event: hikari.ReactionAddEvent) -> None:

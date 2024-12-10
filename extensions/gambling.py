@@ -1,26 +1,25 @@
+import asyncio
+import io
+from typing import List, Optional
+
+import anydeck
 import hikari
 import lightbulb
 import random
 import string
+from matplotlib import pyplot as plt
 
+from database import kek_counter, gambling_list, stocks, stock_history
 
-from database import kek_counter, gambling_list, stocks
-
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from lightbulb import Choice
 from dateutil import parser as dateutil_parser
+from anydeck import AnyDeck
 
 import parsedatetime
 
 loader = lightbulb.Loader()
 OWNER_ID = 453445704690434049
-
-STOCK_SYMBOLS = {
-    "KEKI": "Kekistocracy Inc.",
-    "BSDL": "BasedLife LLC",
-    "FUNI": "FunniColors",
-    "CRYG": "Cring Cryptoo"
-}
 
 @lightbulb.hook(lightbulb.ExecutionSteps.CHECKS)
 async def me_only(_: lightbulb.ExecutionPipeline, ctx: lightbulb.Context) -> None:
@@ -33,7 +32,6 @@ def count_for(bet_data):
         if better["choice"] == "For":
             believers.append(better)
     return believers
-
 
 def count_against(bet_data):
     nonbelievers = []
@@ -51,6 +49,14 @@ def check_if_broke(player, betting) -> bool:
 
 def generate_game_id():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+def generate_deck(card_values):
+    deck = AnyDeck(shuffled=True,
+        suits=('♣','♦','♥','♠'),
+        cards=('Ace','2','3','4','5','6','7','8','9','10','Jack','Queen','King')
+    )
+    deck.dict_to_value(card_values)
+    return deck
 
 # Gambling Module
 
@@ -464,6 +470,352 @@ class GetList(
             )
         await ctx.respond(embed=embed)
 
+# Blackjack Module
+
+blackjack_values = {
+    "Ace": 11,
+    "2": 2,
+    "3": 3,
+    "4": 4,
+    "5": 5,
+    "6": 6,
+    "7": 7,
+    "8": 8,
+    "9": 9,
+    "10": 10,
+    "Jack": 10,
+    "Queen": 10,
+    "King": 10
+}
+
+
+class BlackjackGame:
+    def __init__(self, player_id: int):
+        self.player_id = player_id
+        self.deck = generate_deck(blackjack_values)
+
+        # Deal initial hands
+        self.player_hand: List[anydeck.Card] = []
+        self.dealer_hand: List[anydeck.Card] = []
+
+        # Deal 2 cards to player and dealer
+        for _ in range(2):
+            self.player_hand.append(self.deck.draw())
+            self.dealer_hand.append(self.deck.draw())
+            self.is_insurance_offered: bool = True if self.dealer_hand[0].value == 11 else False
+
+        self.player_total = self._calculate_hand_value(self.player_hand)
+        self.dealer_total = self._calculate_hand_value(self.dealer_hand)
+
+        # Track bet and game state
+        self.bet_amount: Optional[int] = None
+        self.game_over: bool = False
+        self.can_split: bool = len(set(self.player_hand)) == 1
+        self.can_double_down: bool = True
+
+    def _calculate_hand_value(self, hand: List[anydeck.Card]) -> int:
+        """Calculate the total value of a hand, accounting for Aces."""
+        total = sum(card.value for card in hand)
+        ace_count = 0
+        # Adjust for Aces
+        for card in hand:
+            if card.face == 'Ace':
+                ace_count += 1
+        while total > 21 and ace_count > 0:
+            total -= 10
+            ace_count -= 1
+
+        return total
+
+    def create_game_embed(self, reveal_dealer: bool = False) -> hikari.Embed:
+        """Create an embed showing the current game state."""
+        embed = hikari.Embed(title="🃏 Blackjack", color=0x2B2D31)
+        player_hand_str = ''
+
+        # Player's hand
+        for card in self.player_hand:
+            player_hand_str += ' '.join(card.suit) + card.face
+        embed.add_field(
+            name=f"Your Hand (Total: {self.player_total})",
+            value=player_hand_str,
+            inline=False
+        )
+
+        # Dealer's hand
+        if reveal_dealer:
+            dealer_hand_str = ''
+            for card in self.dealer_hand:
+                dealer_hand_str += ' '.join(card.suit) + card.face
+            embed.add_field(
+                name=f"Dealer's Hand (Total: {self.dealer_total})",
+                value=dealer_hand_str,
+                inline=False
+            )
+        else:
+            # Hide second card
+            dealer_visible_hand = [self.dealer_hand[0].suit + self.dealer_hand[0].face, '🂠']
+            dealer_hand_str = ' '.join(dealer_visible_hand)
+            embed.add_field(
+                name="Dealer's Hand",
+                value=dealer_hand_str,
+                inline=False
+            )
+
+        return embed
+
+    def check_player_blackjack(self) -> bool:
+        """Check if either player or dealer has a blackjack."""
+        player_blackjack = self.player_total == 21
+
+        if player_blackjack:
+            self.game_over = True
+            return True
+
+        return False
+
+    def check_dealer_blackjack(self) -> bool:
+        """Check if the dealer has a blackjack."""
+        dealer_blackjack = self._calculate_hand_value(self.dealer_hand) == 21
+
+        if dealer_blackjack:
+            self.game_over = True
+            return True
+
+        return False
+
+    def hit(self) -> bool:
+        """Add a card to the player's hand."""
+        new_card = self.deck.draw()
+        self.player_hand.append(new_card)
+        self.player_total = self._calculate_hand_value(self.player_hand)
+
+        # Check for bust
+        return self.player_total > 21
+
+    def dealer_play(self) -> None:
+        """Dealer's turn to play according to standard Blackjack rules."""
+        while self.dealer_total < 17:
+            new_card = self.deck.draw()
+            self.dealer_hand.append(new_card)
+            self.dealer_total = self._calculate_hand_value(self.dealer_hand)
+
+    def determine_winner(self) -> str:
+        """Determine the winner of the game."""
+        if self.player_total > 21:
+            return "Bust! You went over 21. Dealer wins. You lose your bet. 💸"
+        elif self.dealer_total > 21:
+            return "Dealer busts! You win. Payout is 1:1. 💰"
+        elif self.player_total > self.dealer_total:
+            return "You win! Payout is 1:1. 💰"
+        elif self.player_total < self.dealer_total:
+            return "Dealer wins. You lose your bet. 💸"
+        else:
+            return "Push! It's a tie. Your bet is returned. 🔄"
+
+
+class BlackjackMenu(lightbulb.components.Menu):
+    def __init__(self, game: BlackjackGame) -> None:
+        self.game = game
+
+        # Dynamically create buttons based on game state
+        self.buttons = []
+
+        # Standard game buttons
+        self.hit_button = self.add_interactive_button(
+            hikari.ButtonStyle.SUCCESS,
+            self.on_hit,
+            label="Hit"
+        )
+        self.stand_button = self.add_interactive_button(
+            hikari.ButtonStyle.DANGER,
+            self.on_stand,
+            label="Stand"
+        )
+        # Conditional buttons
+        if self.game.can_split:
+            self.split_button = self.add_interactive_button(
+                hikari.ButtonStyle.PRIMARY,
+                self.on_split,
+                label="Split"
+            )
+        if self.game.can_double_down:
+            self.double_down_button = self.add_interactive_button(
+                hikari.ButtonStyle.PRIMARY,
+                self.on_double_down,
+                label="Double Down"
+            )
+        # Surrender always available early in the game
+        self.surrender_button = self.add_interactive_button(
+            hikari.ButtonStyle.SECONDARY,
+            self.on_surrender,
+            label="Surrender"
+        )
+
+        # Insurance button if dealer shows an Ace
+        if self.game.is_insurance_offered:
+            self.insurance_button = self.add_interactive_button(
+                hikari.ButtonStyle.SUCCESS,
+                self.on_insurance,
+                label="Insurance"
+            )
+
+    async def on_hit(self, ctx: lightbulb.components.MenuContext) -> None:
+        # Player hits, gets a new card
+        is_bust = self.game.hit()
+
+        if is_bust:
+            # Player busts, end game
+            await ctx.respond(
+                embed=self.game.create_game_embed(reveal_dealer=True),
+                edit=True,
+                content="🃏 Bust! You went over 21.",
+                components=[]
+            )
+            return
+
+        if self.game.check_player_blackjack() and not self.game.check_dealer_blackjack():
+            await ctx.respond(
+                content="🃏 Blackjack! You have a 21. Payout is 1:1.",
+                embed=self.game.create_game_embed(reveal_dealer=True),
+                edit=True,
+                components=[]
+            )
+            return
+        elif self.game.check_player_blackjack() and self.game.check_dealer_blackjack():
+            await ctx.respond(
+                content="🃏 The dealer has a natural blackjack! You lose.",
+                embed=self.game.create_game_embed(reveal_dealer=True),
+                edit=True,
+                components=[]
+            )
+            return
+
+        # Continue game with updated embed
+        await ctx.respond(
+            content=f"🃏 Hit! you got a {self.game.player_hand[-1].suit}{self.game.player_hand[-1].face}.",
+            embed=self.game.create_game_embed(),
+            edit=True,
+            components=self
+        )
+
+    async def on_stand(self, ctx: lightbulb.components.MenuContext) -> None:
+        # Dealer plays their hand
+        self.game.dealer_play()
+
+        # Determine winner
+        result = self.game.determine_winner()
+
+        await ctx.respond(
+            embed=self.game.create_game_embed(reveal_dealer=True),
+            edit=True,
+            content=f"🃏 {result}",
+            components=[]
+        )
+
+    async def on_split(self, ctx: lightbulb.components.MenuContext) -> None:
+        # Placeholder for split functionality
+        await ctx.respond("Split not implemented yet!", edit=True, components=[])
+
+    async def on_double_down(self, ctx: lightbulb.components.MenuContext) -> None:
+        # Double the bet, take one final card
+        if self.game.can_double_down:
+            self.game.bet_amount *= 2
+            is_bust = self.game.hit()
+
+            if is_bust:
+                await ctx.respond(
+                    embed=self.game.create_game_embed(reveal_dealer=True),
+                    edit=True,
+                    content="🃏 Bust! You went over 21 after doubling down.",
+                    components=[]
+                )
+                return
+
+            # Automatically stand after doubling down
+            self.game.dealer_play()
+            result = self.game.determine_winner()
+
+            await ctx.respond(
+                embed=self.game.create_game_embed(reveal_dealer=True),
+                edit=True,
+                content=f"🃏 {result} (Double Down)",
+                components=[]
+            )
+
+    async def on_surrender(self, ctx: lightbulb.components.MenuContext) -> None:
+        # Player surrenders, loses half the bet
+        await ctx.respond(
+            embed=self.game.create_game_embed(reveal_dealer=True),
+            edit=True,
+            content="🃏 You surrendered. Half your bet is returned.",
+            components=[]
+        )
+
+    async def on_insurance(self, ctx: lightbulb.components.MenuContext) -> None:
+        # Check if dealer has blackjack
+        if self.game.check_dealer_blackjack():
+            await ctx.respond(
+                embed=self.game.create_game_embed(reveal_dealer=True),
+                edit=True,
+                content="🃏 Dealer has Blackjack! Insurance pays out in 2:1.",
+                components=[]
+            )
+        else:
+            self.insurance_button.disabled = True
+            await ctx.respond(
+                embed=self.game.create_game_embed(),
+                content="🃏 Dealer does not have Blackjack. You lose the insurance bet. Game continues as normal.",
+                edit=True,
+                components=self
+            )
+
+
+@loader.command()
+class BlackjackStart(
+    lightbulb.SlashCommand,
+    name="blackjack",
+    description="Start a game of blackjack."
+):
+    bet = lightbulb.integer("bet", "Amount of basedbucks to bet on the game. CURRENTLY UNUSED", min_value=10, max_value=1000)
+
+    @lightbulb.invoke
+    async def blackjack(self, ctx: lightbulb.Context, client: lightbulb.GatewayEnabledClient) -> None:
+        # Create game instance
+        game = BlackjackGame(ctx.user.id)
+        game.bet_amount = self.bet
+
+        # Create menu with initial buttons
+        menu = BlackjackMenu(game)
+
+        if game.check_player_blackjack() and game.check_dealer_blackjack():
+            await ctx.respond(
+                content="🃏 Both you and the dealer have Blackjack! It's a push.",
+                embed=game.create_game_embed(reveal_dealer=True),
+                components=[]
+            )
+            return
+        # Check for initial blackjack
+        if game.check_player_blackjack():
+            # Handle blackjack scenario (reveal dealer's hand, determine winner)
+            await ctx.respond(
+                content="🃏 Blackjack! You have a natural 21. Payout is 3:2.",
+                embed=game.create_game_embed(),
+                components=[]  # No more buttons if game is over
+            )
+            return
+
+        # Respond with game embed and interactive buttons
+        resp = await ctx.respond(
+            content=f"🃏 Blackjack game started! Make your move. {'The dealer has an Ace, and offers insurance.' if game.is_insurance_offered else ''}",
+            embed=game.create_game_embed(),
+            components=menu
+        )
+
+        try:
+            await menu.attach(client, wait=True, timeout=120)
+        except asyncio.TimeoutError:
+            await ctx.edit_response(resp, "Timed out!", components=[])
+
 # Banking Module
 
 def calculate_loan_apr(loan_amount: float, credit_score: int, max_safe_loan: float = 50000) -> float:
@@ -503,7 +855,6 @@ def calculate_loan_apr(loan_amount: float, credit_score: int, max_safe_loan: flo
     # Hard cap on APR
     return min(apr, 0.50)  # 50% max APR to prevent infinite debt
 
-
 def can_take_loan(credit_score: int, loan_amount: float, total_existing_debt: float) -> bool:
     """
     Enhanced loan eligibility check
@@ -535,7 +886,6 @@ def can_take_loan(credit_score: int, loan_amount: float, total_existing_debt: fl
         return False
 
     return True
-
 
 def calculate_credit_score_change(loan_amount: float, current_score: int, is_repayment: bool = False) -> int:
     """
@@ -795,6 +1145,8 @@ class WireMoney(
 
 # The Stock Market
 
+ECONOMIC_UPDATE_CHANNELS = [1178375823812735069, 1121479899841044510]  # Channel IDs for economic updates
+
 VOLATILITY_RANGE = (0.01, 0.15)  # 1-15% daily price change
 MAX_DAILY_CHANGE = 0.2  # 20% max daily change
 MIN_STOCK_PRICE = 1  # Minimum stock price
@@ -855,20 +1207,65 @@ def initialize_stocks(stocks_collection):
     print("Stocks initialized successfully!")
     return True
 
+def save_stock_price_history(stock_data):
+    """
+    Save current stock prices to historical tracking collection.
 
-# You'll need to modify the generate_stock_price_change function to use stock-specific volatility
-def generate_stock_price_change(current_price, stock_volatility):
+    Args:
+        stock_data (dict): Current stock data to be saved
+    """
+    # Add timestamp to the document
+    history_entry = {
+        "timestamp": datetime.now(timezone.utc),
+        "stocks": {}
+    }
+
+    # Copy stock data, ensuring we don't modify the original
+    for symbol, details in stock_data.get("stocks", {}).items():
+        history_entry["stocks"][symbol] = {
+            "name": details["name"],
+            "price": details["price"],
+            "volatility": details["volatility"]
+        }
+
+    # Insert the historical entry
+    stock_history.insert_one(history_entry)
+
+    # Prune old historical data (keep last 30 days)
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
+    stock_history.delete_many({"timestamp": {"$lt": cutoff_date}})
+
+ECONOMIC_EVENT_PROBABILITY = 0.05  # 5% chance of an economic event
+BOOM_MULTIPLIER = 1.5  # 50% price increase during a boom
+BUST_MULTIPLIER = 0.5  # 50% price decrease during a bust
+
+def generate_stock_price_change(current_price, stock_volatility, is_economic_event=False):
     """
     Generate a more realistic stock price change using a random walk model
-    with stock-specific volatility.
+    with stock-specific volatility and potential economic events.
 
     Args:
         current_price (float): Current stock price
         stock_volatility (float): Maximum daily volatility for this stock
+        is_economic_event (bool): Whether this is part of an economic event
 
     Returns:
         float: New stock price after simulated change
     """
+    if is_economic_event:
+        # During an economic event, apply a significant multiplier
+        event_type = random.choice(['boom', 'bust'])
+
+        if event_type == 'boom':
+            new_price = current_price * BOOM_MULTIPLIER
+            event_description = "Economic Boom!"
+        else:
+            new_price = current_price * BUST_MULTIPLIER
+            event_description = "Economic Bust!"
+
+        return round(new_price, 2), event_description
+
+    # Normal price change logic
     # Randomly choose volatility within the stock's volatility range
     volatility = random.uniform(0.01, stock_volatility)
 
@@ -883,45 +1280,133 @@ def generate_stock_price_change(current_price, stock_volatility):
     new_price = current_price + price_change
 
     # Enforce price boundaries
-    return max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price))
+    return max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price)), None
 
+@loader.task(lightbulb.crontrigger("0,30 * * * *"))
+async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
+    """
+    Periodically update stock prices with some randomness in timing
+    and occasional economic events.
+    """
 
-# Update the update_stock_prices function to use stock-specific volatility
-@loader.task(lightbulb.uniformtrigger(minutes=30))
-async def update_stock_prices():
-    """
-    Periodically update stock prices with some randomness in timing.
-    """
-    # Randomize the actual update interval slightly
-    variation = random.uniform(0.8, 1.2)
+    # Determine if an economic event occurs
+    economic_event = random.random() < ECONOMIC_EVENT_PROBABILITY
+    event_stock = None
 
     # Find existing stocks or initialize if not present
     existing_stocks = stocks.find_one({}) or {"stocks": {}}
 
     for symbol, stock_info in existing_stocks["stocks"].items():
+        # Determine if this stock is affected by the economic event
+        is_event_stock = economic_event and (event_stock is None)
+        if is_event_stock:
+            event_stock = symbol
+
         # Get current stock price and volatility
-        current_price = stock_info.get("price", 100)
+        current_price = stock_info.get("price")
         stock_volatility = stock_info.get("volatility", 0.15)  # Default to 15% if not specified
 
-        # Generate new price with stock-specific volatility
-        new_price = generate_stock_price_change(current_price, stock_volatility)
+        # Generate new price
+        new_price, event_description = generate_stock_price_change(
+            current_price,
+            stock_volatility,
+            is_economic_event=(symbol == event_stock)
+        )
+
+        # Prepare update details
+        update_details = {
+            "name": stock_info["name"],
+            "price": round(new_price, 2),
+            "volatility": stock_volatility,
+            "last_updated": datetime.now(timezone.utc)
+        }
+
+        # Add event description if applicable
+        if event_description:
+            update_details["event"] = {
+                "type": event_description,
+                "timestamp": datetime.now(timezone.utc)
+            }
 
         # Update stock data
         stocks.update_one(
             {},  # Update the single document
             {
                 "$set": {
-                    f"stocks.{symbol}": {
-                        "name": stock_info["name"],
-                        "price": round(new_price, 2),
-                        "volatility": stock_volatility,
-                        "last_updated": datetime.now(timezone.utc)
-                    }
+                    f"stocks.{symbol}": update_details
                 }
             },
             upsert=True  # Create document if it doesn't exist
         )
 
+    # Refresh the stock data after updates
+    updated_stocks = stocks.find_one({})
+
+    # Save historical data
+    save_stock_price_history(updated_stocks)
+
+    # Optional: Log the economic event if it occurred
+    if economic_event and event_stock:
+        print(f"Economic event occurred: {event_description} affecting {event_stock}")
+        for channel in ECONOMIC_UPDATE_CHANNELS:
+            await client.app.rest.create_message(channel, content=f"📈 {event_description} affecting {event_stock}!")
+
+async def generate_stock_price_graph():
+    """
+    Generate a graph of stock prices from historical data.
+
+    Returns:
+        hikari.Bytes: Graph image ready to be sent to Discord
+    """
+    # Retrieve historical stock price data for the last 30 days
+    historical_data = list(stock_history.find().sort("timestamp", 1))
+
+    # Create the plot
+    plt.figure(figsize=(12, 6))
+    plt.title("Stock Prices Over Time", fontsize=15)
+    plt.xlabel("Timestamp", fontsize=12)
+    plt.ylabel("Price ($)", fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+
+    # Track stocks to plot
+    stocks_to_plot = {}
+
+    # Collect and plot data for each stock
+    for entry in historical_data:
+        for symbol, stock_info in entry.get('stocks', {}).items():
+            if symbol not in stocks_to_plot:
+                stocks_to_plot[symbol] = {
+                    'timestamps': [],
+                    'prices': []
+                }
+
+            stocks_to_plot[symbol]['timestamps'].append(entry['timestamp'])
+            stocks_to_plot[symbol]['prices'].append(stock_info['price'])
+
+    # Plot each stock with a different color
+    colors = ['blue', 'green', 'red', 'purple', 'orange']
+    for i, (symbol, data) in enumerate(stocks_to_plot.items()):
+        plt.plot(
+            data['timestamps'],
+            data['prices'],
+            label=symbol,
+            color=colors[i % len(colors)],
+            marker='o',
+            markersize=4
+        )
+
+    plt.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    # Save plot to a bytes buffer
+    buffer = io.BytesIO()
+    plt.savefig(buffer, format='png')
+    buffer.seek(0)
+    plt.close()
+
+    # Convert to hikari.Bytes for Discord
+    return hikari.Bytes(buffer, 'stock_prices.png')
 
 @loader.command
 class BuyStock(
@@ -976,7 +1461,6 @@ class BuyStock(
         await ctx.respond(
             f"Bought {self.quantity} stocks of {current_stock['name']} at ${current_stock['price']:.2f} each. "
             f"Total cost: ${total_cost:.2f} Basedbucks.")
-
 
 @loader.command
 class SellStock(
@@ -1062,7 +1546,6 @@ class SellStock(
             f"Total sale: ${total_sale_value:.2f} Basedbucks\n"
             f"{profit_loss_text}")
 
-
 @loader.command
 class CheckStocks(
     lightbulb.SlashCommand,
@@ -1126,4 +1609,18 @@ class CheckStocks(
                 inline=False
             )
 
-        await ctx.respond(embed=embed)
+        # Generate stock price graph
+        try:
+            stock_graph = await generate_stock_price_graph()
+
+            # Send both the embed and the graph
+            await ctx.respond(
+                embed=embed,
+                attachment=stock_graph
+            )
+        except Exception as e:
+            # Fallback if graph generation fails
+            await ctx.respond(
+                embed=embed,
+                content=f"Could not generate stock price graph: {str(e)}"
+            )
