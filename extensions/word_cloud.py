@@ -1,71 +1,67 @@
-from wordcloud import WordCloud, STOPWORDS
-from pymongo import MongoClient
-from typing import Optional
 import re
-import os
-import dotenv
+from typing import Optional
 
 import hikari
 import lightbulb
+from dotenv import main
 
-dotenv.load_dotenv()
+from database import collection
+from wordcloud import WordCloud, STOPWORDS
 
-wordcloud_plugin = lightbulb.Plugin("Word Cloud")
+main.load_dotenv()
 
-cluster = MongoClient(f"{os.environ['DB_URI']}")
-db = cluster["based_count"]
-collection = db["messages"]
+loader = lightbulb.Loader()
 
-target_usernames = []
+@loader.command
+class WordCloudGenerate(
+    lightbulb.SlashCommand,
+    name="wordcloud",
+    description="Generates a word cloud based on a user's messages."
+):
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context, user: Optional[hikari.User] = None) -> None:
+        length = 0
+        try:
+            user = user.username if user else ctx.member.username
+            target_usernames = [user]
+            await ctx.respond(f"Generating {user}'s wordcloud...")
+            url_regex = r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
 
-@wordcloud_plugin.command
-@lightbulb.option("user", "The user to get a word cloud from.", hikari.User, required=False)
-@lightbulb.command("wordcloud", "Generates a word cloud based on a user's messages.", pass_options=True)
-@lightbulb.implements(lightbulb.SlashCommand)
-async def wordcloud(ctx: lightbulb.SlashContext, user: Optional[hikari.User] = None) -> None:
-    length = 0
-    try:
-        user = user.username if user else ctx.author.username
-        target_usernames = [user]
-        await ctx.respond(f"Generating {user}'s wordcloud...")
-        url_regex = r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-
-        # Retrieve text contents from MongoDB for specified usernames
-        text_data = " ".join([
-            message["content"] for message in collection.find({
+            # Retrieve text contents from MongoDB for specified usernames
+            text_data = " ".join([
+                message["content"] for message in collection.find({
+                    "author_username": {"$in": target_usernames},
+                    "content": {"$not": re.compile(url_regex), "$ne": None}  # Exclude messages with URLs
+                })
+            ])
+            for message in collection.find({
                 "author_username": {"$in": target_usernames},
                 "content": {"$not": re.compile(url_regex), "$ne": None}  # Exclude messages with URLs
-            })
-        ])
-        for message in collection.find({
-            "author_username": {"$in": target_usernames},
-            "content": {"$not": re.compile(url_regex), "$ne": None}  # Exclude messages with URLs
-        }):
-            length += 1
-        
-        # Preprocess text data
-        processed_text = text_data.lower()  # Convert to lowercase for consistency
+            }):
+                length += 1
 
-        # Remove short words and single letters
-        words = processed_text.split()
-        words = [word for word in words if len(word) > 2]
+            # Preprocess text data
+            processed_text = text_data.lower()  # Convert to lowercase for consistency
 
-        # Remove stop words
-        stop_words = set(STOPWORDS)
-        words = [word for word in words if word not in stop_words]
+            # Remove short words and single letters
+            words = processed_text.split()
+            words = [word for word in words if len(word) > 2]
 
-        # Join the words back into a single string
-        processed_text = " ".join(words)
+            # Remove stop words
+            stop_words = set(STOPWORDS)
+            words = [word for word in words if word not in stop_words]
 
-        # Generate Word Cloud
-        wordcloud = WordCloud(width=800, height=400, background_color="white").generate(processed_text)
+            # Join the words back into a single string
+            processed_text = " ".join(words)
 
-        # Alternatively, save the Word Cloud to a file
-        wordcloud.to_file("wordcloud.png")
-        file = hikari.File('wordcloud.png', filename='wordcloud.png')
-        await ctx.app.rest.create_message(ctx.channel_id, content=f"{user}'s wordcloud generated. Messages considered: {length}", attachment=file)
-    except ValueError:
-        await ctx.respond(f"Error! Could not generate word cloud.")
+            # Generate Word Cloud
+            wordcloud = WordCloud(width=800, height=400, background_color="white").generate(processed_text)
 
-def load(bot: lightbulb.BotApp) -> None:
-    bot.add_plugin(wordcloud_plugin)
+            # Alternatively, save the Word Cloud to a file
+            wordcloud.to_file("wordcloud.png")
+            file = hikari.File('wordcloud.png', filename='wordcloud.png')
+            await ctx.client.app.rest.create_message(ctx.channel_id,
+                                              content=f"{user}'s wordcloud generated. Messages considered: {length}",
+                                              attachment=file)
+        except ValueError:
+            await ctx.respond(f"Error! Could not generate word cloud.")
