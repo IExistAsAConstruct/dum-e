@@ -583,7 +583,8 @@ async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message,
 async def me_only(_: lightbulb.ExecutionPipeline, ctx: lightbulb.Context) -> None:
     for role in ctx.member.role_ids:
         if ctx.user.id != OWNER_ID or role == 928983928289771560:
-           raise RuntimeError("You can't use this command!")
+            await ctx.respond("You can't use this command!", flags=hikari.MessageFlag.EPHEMERAL)
+            raise RuntimeError("You can't use this command!")
 
 @loader.command
 class Kekban(

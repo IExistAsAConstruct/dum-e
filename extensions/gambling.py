@@ -23,9 +23,10 @@ OWNER_ID = 453445704690434049
 
 @lightbulb.hook(lightbulb.ExecutionSteps.CHECKS)
 async def me_only(_: lightbulb.ExecutionPipeline, ctx: lightbulb.Context) -> None:
-    if ctx.user.id != OWNER_ID:
-        await ctx.respond("You can't use this command!", flags=hikari.MessageFlag.EPHEMERAL)
-        raise RuntimeError("You can't use this command!")
+    for role in ctx.member.role_ids:
+        if ctx.user.id != OWNER_ID or role == 928983928289771560:
+            await ctx.respond("You can't use this command!", flags=hikari.MessageFlag.EPHEMERAL)
+            raise RuntimeError("You can't use this command!")
 
 def count_for(bet_data):
     believers = []
@@ -146,13 +147,13 @@ class BetGamble(
                 {
                     "name": ctx.member.username,
                     "user_id": str(ctx.member.id),
-                    "wager": self.wager,
+                    "wager": round(self.wager, 2),
                     "choice": self.choice
                 }
             ],
-            "total_pot": self.wager,
-            "believer_pot": self.wager if self.choice == "For" else 0,
-            "nonbeliever_pot": self.wager if self.choice == "Against" else 0
+            "total_pot": round(self.wager, 2),
+            "believer_pot": round(self.wager, 2) if self.choice == "For" else 0,
+            "nonbeliever_pot": round(self.wager, 2) if self.choice == "Against" else 0
         }
 
         gambling_list.insert_one(gamble_data)
@@ -160,13 +161,13 @@ class BetGamble(
         kek_counter.update_one(
             {"user_id": str(ctx.member.id)},
             {
-                "$inc": {f"{'kek_count' if self.betting == 'Keks' else 'basedbucks'}": self.wager * -1}
+                "$inc": {f"{'kek_count' if self.betting == 'Keks' else 'basedbucks'}": round(self.wager * -1, 2)}
             },
             upsert=True,
         )
 
         await ctx.respond(
-            f'{ctx.member.mention} bet {self.wager} {self.betting} {"on" if self.choice == "For" else "against"} "{self.bet}"! The deadline is on {deadline_dt}. To join in on the bet, use /join-gamble with the ID "{gamble_id}".'
+            f'{ctx.member.mention} bet {round(self.wager, 2)} {self.betting} {"on" if self.choice == "For" else "against"} "{self.bet}"! The deadline is on {deadline_dt}. To join in on the bet, use /join-gamble with the ID "{gamble_id}".'
         )
 
 @loader.command
@@ -216,28 +217,28 @@ class JoinGamble(
         new_wager = {
             "name": ctx.member.username,
             "user_id": str(ctx.member.id),
-            "wager": self.wager,
+            "wager": round(self.wager, 2),
             "choice": self.choice
         }
         gambling_list.update_one(
             {"bet_id": self.id},
             {
                 "$push": {"betters": new_wager},
-                "$inc": {"total_pot": self.wager,
-                         "believer_pot" if self.choice == "For" else "nonbeliever_pot": self.wager
+                "$inc": {"total_pot": round(self.wager, 2),
+                         "believer_pot" if self.choice == "For" else "nonbeliever_pot": round(self.wager, 2)
                          }
             }
         )
         kek_counter.update_one(
             {"user_id": str(ctx.member.id)},
             {
-                "$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": self.wager * -1}
+                "$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": round(self.wager * -1, 2)}
             },
             upsert=True
         )
 
         await ctx.respond(
-            f'{ctx.member.mention} bet {self.wager} {bet_data["betting"]} {"on" if self.choice == "For" else "against"} "{bet_data["bet"]}"! To join in on the bet, use /join-gamble with the ID "{self.id}".'
+            f'{ctx.member.mention} bet {round(self.wager, 2)} {bet_data["betting"]} {"on" if self.choice == "For" else "against"} "{bet_data["bet"]}"! To join in on the bet, use /join-gamble with the ID "{self.id}".'
         )
 
 @loader.command
@@ -274,17 +275,17 @@ class RaiseGamble(
                         flags=hikari.MessageFlag.EPHEMERAL)
                     return
 
-                better["wager"] += self.wager
+                better["wager"] += round(self.wager, 2)
 
-                bet_data["total_pot"] += self.wager
+                bet_data["total_pot"] += round(self.wager, 2)
                 if better["choice"] == "For":
-                    bet_data["believer_pot"] += self.wager
+                    bet_data["believer_pot"] += round(self.wager, 2)
                 elif better["choice"] == "Against":
-                    bet_data["nonbeliever_pot"] += self.wager
+                    bet_data["nonbeliever_pot"] += round(self.wager, 2)
 
                 kek_counter.update_one(
                     {"user_id": str(ctx.member.id)},
-                    {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": -self.wager}},
+                    {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": round(-self.wager, 2)}},
                     upsert=True
                 )
 
@@ -297,7 +298,7 @@ class RaiseGamble(
                 )
 
                 await ctx.respond(
-                    f'{ctx.member.mention} raised their bet by {self.wager}, making their total wager {better["wager"]} {bet_data["betting"]} {"on" if better["choice"] == "For" else "against"} "{bet_data["bet"]}" and the total pot {bet_data["total_pot"]}! To join in on the bet, use /join-gamble with the ID "{self.id}".'
+                    f'{ctx.member.mention} raised their bet by {round(self.wager, 2)}, making their total wager {better["wager"]} {bet_data["betting"]} {"on" if better["choice"] == "For" else "against"} "{bet_data["bet"]}" and the total pot {bet_data["total_pot"]}! To join in on the bet, use /join-gamble with the ID "{self.id}".'
                 )
                 return
         await ctx.respond("You don't have a wager on this bet!", flags=hikari.MessageFlag.EPHEMERAL)
@@ -307,7 +308,7 @@ class CancelGamble(
     lightbulb.SlashCommand,
     name="cancel-gamble",
     description="Cancel a currently running bet. Admins and bot owner only.",
-    hooks=[me_only or lightbulb.prefab.has_roles(928983928289771560)]
+    hooks=[me_only]
 ):
     id = lightbulb.string("id", "ID of the bet you want to cancel.")
 
@@ -339,7 +340,7 @@ class WinGamble(
     lightbulb.SlashCommand,
     name="succeed-gamble",
     description="End a bet on the side of the believers. Admins and bot owner only.",
-    hooks=[me_only or lightbulb.prefab.has_roles(928983928289771560)]
+    hooks=[me_only]
 ):
     id = lightbulb.string("id", "ID of the bet that succeeded.")
 
@@ -356,8 +357,8 @@ class WinGamble(
             if better["choice"] == "For":
                 user_id = better["user_id"]
                 wager = better["wager"]
-                winnings = wager * 1.5 if bet_data["nonbeliever_pot"] == 0 else (wager + (
-                            bet_data["nonbeliever_pot"] / len(believers))) * 1.5
+                winnings = round(wager * 1.5, 2) if bet_data["nonbeliever_pot"] == 0 else round((wager + (
+                            bet_data["nonbeliever_pot"] / len(believers))) * 1.5, 2)
                 kek_counter.update_one(
                     {"user_id": user_id},
                     {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": round(winnings, 2)}},
@@ -383,7 +384,7 @@ class LoseGamble(
     lightbulb.SlashCommand,
     name="fail-gamble",
     description="End a bet on the side of the non-believers. Admins and bot owner only.",
-    hooks=[me_only or lightbulb.prefab.has_roles(928983928289771560)]
+    hooks=[me_only]
 ):
     id = lightbulb.string("id", "ID of the bet that failed.")
 
@@ -400,8 +401,8 @@ class LoseGamble(
             if better["choice"] == "Against":
                 user_id = better["user_id"]
                 wager = better["wager"]
-                winnings = wager * 1.5 if bet_data["believer_pot"] == 0 else (wager + (
-                            bet_data["believer_pot"] / len(nonbelievers))) * 1.5
+                winnings = round(wager * 1.5, 2) if bet_data["believer_pot"] == 0 else round((wager + (
+                            bet_data["believer_pot"] / len(nonbelievers))) * 1.5, 2)
                 kek_counter.update_one(
                     {"user_id": user_id},
                     {"$inc": {f"{'kek_count' if bet_data['betting'] == 'Keks' else 'basedbucks'}": winnings}},
@@ -1514,6 +1515,8 @@ class WireMoney(
 
         player_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
 
+        self.amount = round(self.amount, 2)
+
         if player_data and player_data.get("kekbanned", False) and self.type == "Keks":
             dm_channel = await ctx.user.fetch_dm_channel()
             await ctx.client.app.rest.create_message(
@@ -1559,7 +1562,7 @@ ECONOMIC_UPDATE_CHANNELS = [1178375823812735069, 1121479899841044510]  # Channel
 
 VOLATILITY_RANGE = (0.01, 0.15)  # 1-15% daily price change
 MAX_DAILY_CHANGE = 0.2  # 20% max daily change
-MIN_STOCK_PRICE = 1  # Minimum stock price
+MIN_STOCK_PRICE = 0.01  # Minimum stock price
 MAX_STOCK_PRICE = 1000  # Maximum stock price
 
 def initialize_stocks(stocks_collection):
@@ -1645,11 +1648,11 @@ def save_stock_price_history(stock_data):
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
     stock_history.delete_many({"timestamp": {"$lt": cutoff_date}})
 
-ECONOMIC_EVENT_PROBABILITY = 0.05  # 5% chance of an original economic event
+ECONOMIC_EVENT_PROBABILITY = 0.03  # 3% chance of an original economic event
 MARKET_WIDE_BOOM_PROBABILITY = 0.01  # 1% chance of market-wide boom
 MARKET_WIDE_BUST_PROBABILITY = 0.01  # 1% chance of market-wide bust
 MEGA_EVENT_PROBABILITY = 0.001  # 0.1% chance of massive price swing
-INTER_STOCK_EVENT_PROBABILITY = 0.02  # 2% chance of one stock rising while another falls
+INTER_STOCK_EVENT_PROBABILITY = 0.01  # 2% chance of one stock rising while another falls
 
 MEGA_EVENT_MULTIPLIER = 10  # 1000% price change
 INTER_STOCK_MULTIPLIER = 1.5  # 50% price change for competing stocks
@@ -1687,9 +1690,9 @@ def generate_stock_price_change(
     if random.random() < ECONOMIC_EVENT_PROBABILITY:
         event_type = random.choice(['boom', 'bust'])
         if event_type == 'boom':
-            return round(current_price * BOOM_MULTIPLIER, 2), f"Economic Boom affecting {symbol}! Stock price rises quickly!"
+            return round(current_price * BOOM_MULTIPLIER, 2), f"Economic Boom affecting {symbol}! Stock price rises quickly!", None
         else:
-            return round(current_price * BUST_MULTIPLIER, 2), f"Economic Bust affecting {symbol}! Stock price falls rapidly!"
+            return round(current_price * BUST_MULTIPLIER, 2), f"Economic Bust affecting {symbol}! Stock price falls rapidly!", None
 
     # Mega Event (Ultra-rare massive price swing)
     mega_event_roll = random.random()
@@ -1700,7 +1703,7 @@ def generate_stock_price_change(
             f"Unprecedented Stock Surge! {symbol} is experiencing an incredibly large price surge!" if direction > 0 else
             f"Catastrophic Stock Collapse! " f"{symbol} is experiencing an incredibly large price crash!"
         )
-        return round(new_price, 2), event_desc
+        return round(new_price, 2), event_desc, None
 
     # Inter-Stock Event (One stock rises, another falls)
     if (stocks_data and symbol and
@@ -1736,7 +1739,7 @@ def generate_stock_price_change(
     price_change = max(-max_change, min(max_change, price_change))
     new_price = current_price + price_change
 
-    return max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price)), None
+    return max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price)), None, None
 
 
 @loader.task(lightbulb.crontrigger("0,30 * * * *"))
