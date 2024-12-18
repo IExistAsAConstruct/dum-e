@@ -54,155 +54,300 @@ INITIAL_BASEDBUCKS: Final[int] = 500
 
 user_based_cooldown = {}
 
+
 @loader.command()
 class GetInfo(
     lightbulb.SlashCommand,
-    name = "userinfo",
-    description = "Get info on a server member."
+    name='userinfo',
+    description='Get detailed user information from a Discord server.'
 ):
-    user = lightbulb.user('user', "The user to get the info of.", default = None)
+    """
+    Slash command to retrieve detailed user information from a Discord server.
+    """
+
+    user = lightbulb.user('user', "The user to get the info of.", default=None)
 
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context) -> None:
+        """
+        Fetch and display comprehensive user information.
 
-        target_user = self.user or ctx.user
-        member_got = await ctx.user.app.rest.fetch_member(ctx.guild_id, target_user)
-        roles = await member_got.fetch_roles()
-        color = roles[1].color if len(roles) > 1 else roles[0].color if len(roles) > 0 else hikari.Color(0xFFFFFF)
+        :param ctx: The context of the command invocation
+        """
+        try:
+            # Determine the target user (command invoker or specified user)
+            target_user = self.user or ctx.user
 
-        now = datetime.now(timezone.utc)
-        seven_days_ago = now - timedelta(days=7)
-        one_month_ago = now - timedelta(days=30)
+            # Fetch member information
+            member_got = await self._fetch_member(ctx, target_user)
+            if not member_got:
+                return
 
-        if not member_got:
-            await ctx.respond("Could not find user!", ephemeral = True)
-            return
+            # Retrieve user data from database
+            user_data = await self._get_user_data(ctx, member_got)
+            if not user_data:
+                return
 
-        user_data = kek_counter.find_one(
-            {'user_id': str(member_got.id)}
-        )
+            # Create and send embed with user information
+            embed = await self._create_user_info_embed(ctx, member_got, user_data)
+            await ctx.respond(embed=embed)
+
+        except Exception as e:
+            await ctx.respond(f"An error occurred: {str(e)}", ephemeral=True)
+
+    async def _fetch_member(self, ctx: lightbulb.Context, target_user) -> Optional[hikari.Member]:
+        """
+        Fetch member information safely.
+
+        :param ctx: The context of the command
+        :param target_user: The user to fetch information for
+        :return: Fetched member or None
+        """
+        try:
+            return await ctx.client.rest.fetch_member(ctx.guild_id, target_user)
+        except hikari.NotFoundError:
+            await ctx.respond("Could not find user!", ephemeral=True)
+            return None
+        except Exception as e:
+            await ctx.respond(f"Error fetching user: {str(e)}", ephemeral=True)
+            return None
+
+    async def _get_user_data(self, ctx: lightbulb.Context, member: hikari.Member) -> Optional[dict]:
+        """
+        Retrieve user data from the database.
+
+        :param ctx: The context of the command
+        :param member: The member to retrieve data for
+        :return: User data dictionary or None
+        """
+        user_data = kek_counter.find_one({'user_id': str(member.id)})
 
         if not user_data:
             await ctx.respond("Could not find user data!", ephemeral=True)
-            return
+            return None
 
-        total_keks = user_data.get('kek_count', 0)
-        based_count = user_data.get('based_count', 0)
-        basedbucks = user_data.get('basedbucks', 0)
-        kekbanned = user_data.get('kekbanned', False)
-        rank = user_data.get('rank', 'No Rank')
+        return user_data
 
-        keks_last_7_days = [kek for kek in user_data.get("keks", []) if
-                            datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= seven_days_ago]
-        keks_last_month = [kek for kek in user_data.get("keks", []) if
-                           datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= one_month_ago]
+    async def _create_user_info_embed(self, ctx: lightbulb.Context, member: hikari.Member,
+                                      user_data: dict) -> hikari.Embed:
+        """
+        Create a comprehensive embed with user information.
 
-        kek_types = [kek["kek_type"] for kek in user_data.get("keks", [])]
-        counts = Counter(kek_types)
-        kek_amount = counts.get("kek", 0)
-        antikek_amount = counts.get("ANTIkek", 0)
+        :param ctx: The context of the command
+        :param member: The member to create an embed for
+        :param user_data: User data dictionary
+        :return: Hikari embed object
+        """
+        # Analyze kek data
+        kek_analysis = self._analyze_kek_data(user_data)
 
+        # Determine embed color
+        color = await self._get_member_color(member)
+
+        # Create embed
         embed = hikari.Embed(
-                title=f'User Info - {member_got.display_name}',
-                description=f'**{rank}**',
-                color=color,
-                timestamp=datetime.now().astimezone()
-            )
+            title=f'User Info - {member.display_name}',
+            description=f"**{user_data.get('rank', 'No Rank')}**",
+            color=color,
+            timestamp=datetime.now().astimezone()
+        )
 
+        # Set footer and thumbnail
         embed.set_footer(
             text=f'Requested by {ctx.user}',
             icon=ctx.user.display_avatar_url
         )
+        embed.set_thumbnail(member.avatar_url)
 
-        embed.set_thumbnail(member_got.avatar_url)
-        embed.add_field('Bot?', 'Yes' if member_got.is_bot else 'No', inline=True)
+        # Add fields
+        self._add_basic_info_fields(embed, member)
+        self._add_kek_data_fields(embed, kek_analysis)
+        self._add_economic_fields(embed, user_data)
+        self._add_miscellaneous_fields(embed, kek_analysis, user_data)
+
+        return embed
+
+    def _analyze_kek_data(self, user_data: dict) -> dict:
+        """
+        Analyze kek-related data.
+
+        :param user_data: User data dictionary
+        :return: Dictionary with kek analysis
+        """
+        now = datetime.now(timezone.utc)
+        seven_days_ago = now - timedelta(days=7)
+        one_month_ago = now - timedelta(days=30)
+
+        keks = user_data.get("keks", [])
+
+        keks_last_7_days = [
+            kek for kek in keks
+            if datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= seven_days_ago
+        ]
+        keks_last_month = [
+            kek for kek in keks
+            if datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= one_month_ago
+        ]
+
+        kek_types = [kek["kek_type"] for kek in keks]
+        counts = Counter(kek_types)
+
+        return {
+            'total_keks': user_data.get('kek_count', 0),
+            'kek_amount': counts.get("kek", 0),
+            'antikek_amount': counts.get("ANTIkek", 0),
+            'keks_last_7_days': keks_last_7_days,
+            'keks_last_month': keks_last_month,
+            'kekbanned': user_data.get('kekbanned', False)
+        }
+
+    async def _get_member_color(self, member: hikari.Member) -> hikari.Color:
+        """
+        Get the member's highest role color.
+
+        :param member: The member to get color for
+        :return: Hikari color object
+        """
+        try:
+            roles = await member.fetch_roles()
+            return roles[1].color if len(roles) > 1 else roles[0].color if roles else hikari.Color(0xFFFFFF)
+        except Exception:
+            return hikari.Color(0xFFFFFF)
+
+    def _add_basic_info_fields(self, embed: hikari.Embed, member: hikari.Member) -> None:
+        """
+        Add basic member information fields to the embed.
+
+        :param embed: Hikari embed to modify
+        :param member: Member to extract information from
+        """
+        embed.add_field('Bot?', 'Yes' if member.is_bot else 'No', inline=True)
         embed.add_field(
             'Created account on',
-            f'<t:{int(member_got.created_at.timestamp())}:d>\n(<t:{int(member_got.created_at.timestamp())}:R>)',
+            f'<t:{int(member.created_at.timestamp())}:d>\n(<t:{int(member.created_at.timestamp())}:R>)',
             inline=True
         )
         embed.add_field(
             "Joined server on",
-            f"<t:{int(member_got.joined_at.timestamp())}:d>\n(<t:{int(member_got.joined_at.timestamp())}:R>)",
-            inline=True,
+            f"<t:{int(member.joined_at.timestamp())}:d>\n(<t:{int(member.joined_at.timestamp())}:R>)",
+            inline=True
         )
-        embed.add_field("General Kek Data","-------",inline=False)
+
+    def _add_kek_data_fields(self, embed: hikari.Embed, kek_analysis: dict) -> None:
+        """
+        Add kek-related data fields to the embed.
+
+        :param embed: Hikari embed to modify
+        :param kek_analysis: Dictionary with kek analysis data
+        """
+        embed.add_field("General Kek Data", "-------", inline=False)
         embed.add_field(
             "Kek Count (Total)",
-            f"{total_keks} total keks",
+            f"{kek_analysis['total_keks']} total keks",
             inline=True
         )
         embed.add_field(
             "Recorded Keks",
-            f"{kek_amount} keks with data on record",
+            f"{kek_analysis['kek_amount']} keks with data on record",
             inline=True
         )
         embed.add_field(
             "Recorded ANTIkeks",
-            f"{antikek_amount} ANTIkeks with data on record",
+            f"{kek_analysis['antikek_amount']} ANTIkeks with data on record",
             inline=True
         )
-        embed.add_field("Kekbanned?", f"{kekbanned}", inline=True)
+        embed.add_field("Kekbanned?", f"{kek_analysis['kekbanned']}", inline=True)
+
         embed.add_field("Weekly/Monthly Kek Data", "-------", inline=False)
         embed.add_field(
             "Kek Count (Week)",
-            f"{len(keks_last_7_days)} total keks in last week",
+            f"{len(kek_analysis['keks_last_7_days'])} total keks in last week",
             inline=True
         )
         embed.add_field(
             "Kek Count (Month)",
-            f"{len(keks_last_month)} total keks in last month",
+            f"{len(kek_analysis['keks_last_month'])} total keks in last month",
             inline=True
         )
         embed.add_field(
             "Keks per day (Week)",
-            f"{round(len(keks_last_7_days) / 7, 2)} keks per day in last week",
+            f"{round(len(kek_analysis['keks_last_7_days']) / 7, 2)} keks per day in last week",
             inline=True
         )
         embed.add_field(
             "Keks per day (Month)",
-            f"{round(len(keks_last_month) / 30, 2)} keks per day in last month",
+            f"{round(len(kek_analysis['keks_last_month']) / 30, 2)} keks per day in last month",
             inline=True
         )
+
+    def _add_economic_fields(self, embed: hikari.Embed, user_data: dict) -> None:
+        """
+        Add economic-related fields to the embed.
+
+        :param embed: Hikari embed to modify
+        :param user_data: User data dictionary
+        """
+        stocks = user_data.get('stocks', [])
+
         embed.add_field("Economic Data", "-------", inline=False)
         embed.add_field(
             "Basedbucks",
-            f"{basedbucks} {'Basedbucks' if basedbucks != 1 else 'Basedbuck'} in the bank",
+            f"{user_data.get('basedbucks', 0)} {'Basedbucks' if user_data.get('basedbucks', 0) != 1 else 'Basedbuck'} in the bank",
             inline=True
         )
         embed.add_field(
             "Credit Score",
-            f"{user_data.get('credit_score', "No credit score")}",
+            f"{user_data.get('credit_score', 'No credit score')}",
             inline=True
         )
         embed.add_field(
             "Stock Portfolio",
-            f"{len(user_data.get('stocks', []))} stocks owned",
-        )
-        embed.add_field(
-            "Total Portfolio Value",
-            f"${sum(stock['value'] for stock in user_data.get('stocks', [])):.2f}",
+            f"{len(stocks)} stocks owned",
             inline=True
         )
+
+        total_portfolio_value = sum(stock['quantity'] * stock['purchase_price'] for stock in stocks)
+        embed.add_field(
+            "Total Portfolio Value",
+            f"${total_portfolio_value:.2f}",
+            inline=True
+        )
+
+        # Handle top stock with safe default
+        top_stock = max(stocks, key=lambda x: x['quantity'] * x['purchase_price'],
+                        default={'symbol': 'None', 'quantity': 0, 'purchase_price': 0})
         embed.add_field(
             "Top Stock",
-            f"{max(user_data.get('stocks', []), key=lambda x: x['value'], default={'name': 'None', 'value': 0})['name']}",
+            f"{top_stock['symbol']}",
             inline=True
         )
         embed.add_field(
             "Top Stock Value",
-            f"${max(user_data.get('stocks', []), key=lambda x: x['value'], default={'name': 'None', 'value': 0})['value']:.2f}",
+            f"${top_stock['quantity'] * top_stock['purchase_price']:.2f}",
             inline=True
         )
+
+    def _add_miscellaneous_fields(self, embed: hikari.Embed, kek_analysis: dict, user_data) -> None:
+        """
+        Add miscellaneous fields to the embed.
+
+        :param embed: Hikari embed to modify
+        :param kek_analysis: Dictionary with kek analysis data
+        """
+        kek_amount = kek_analysis['kek_amount']
+        antikek_amount = kek_analysis['antikek_amount']
+
         embed.add_field("Miscellaneous Data", "-------", inline=False)
         embed.add_field(
             "Kek:ANTIkek ratio",
             f"{round(kek_amount / antikek_amount, 2) if antikek_amount != 0 else 'Infinite'} kek ratio",
             inline=True
         )
-        embed.add_field("Based Count", f"{based_count} total baseds", inline=True)
-
-        await ctx.respond(embed=embed)
+        embed.add_field(
+            "Based Count",
+            f"{user_data.get('based_count', 0)} total baseds",
+            inline=True
+        )
 
 
 @loader.command()
@@ -436,15 +581,16 @@ async def update_leaderboard(guild, kekd_member, keking_user, kek_type, message,
 
 @lightbulb.hook(lightbulb.ExecutionSteps.CHECKS)
 async def me_only(_: lightbulb.ExecutionPipeline, ctx: lightbulb.Context) -> None:
-    if ctx.user.id != OWNER_ID:
-        raise RuntimeError("You can't use this command!")
+    for role in ctx.member.role_ids:
+        if ctx.user.id != OWNER_ID or role == 928983928289771560:
+           raise RuntimeError("You can't use this command!")
 
 @loader.command
 class Kekban(
     lightbulb.SlashCommand,
     name='kekban',
     description='Ban a user from participating in the economy. They can still receive keks.',
-    hooks=[me_only or lightbulb.prefab.has_permissions(hikari.Permissions.ADMINISTRATOR)]
+    hooks=[me_only]
 ):
     user = lightbulb.user('user', 'The user to ban from participating.')
 
@@ -490,7 +636,7 @@ class Kekunban(
     lightbulb.SlashCommand,
     name='kekunban',
     description='Reallow a user to participate in the kekonomy.',
-    hooks=[me_only or lightbulb.prefab.has_permissions(hikari.Permissions.ADMINISTRATOR)]
+    hooks=[me_only]
 ):
     user = lightbulb.user('user', 'The user to allow to participate.')
 

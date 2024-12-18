@@ -24,6 +24,7 @@ OWNER_ID = 453445704690434049
 @lightbulb.hook(lightbulb.ExecutionSteps.CHECKS)
 async def me_only(_: lightbulb.ExecutionPipeline, ctx: lightbulb.Context) -> None:
     if ctx.user.id != OWNER_ID:
+        await ctx.respond("You can't use this command!", flags=hikari.MessageFlag.EPHEMERAL)
         raise RuntimeError("You can't use this command!")
 
 def count_for(bet_data):
@@ -488,7 +489,6 @@ blackjack_values = {
     "King": 10
 }
 
-
 class BlackjackGame:
     def __init__(self, player_id: int):
         self.player_id = player_id
@@ -509,9 +509,103 @@ class BlackjackGame:
 
         # Track bet and game state
         self.bet_amount: Optional[int] = None
+        self.secondary_bet: Optional[int] = None
+        self.insurance_bet: Optional[int] = None
         self.game_over: bool = False
-        self.can_split: bool = len(set(self.player_hand)) == 1
+
+        # Improved split and double down handling
+        self.can_split: bool = self.player_hand[0].value == self.player_hand[1].value
         self.can_double_down: bool = True
+        self.can_primary_double_down: bool = True
+        self.can_secondary_double_down: bool = True
+        self.is_split = False
+
+        self.primary_hand: List[anydeck.Card] = self.player_hand.copy()
+        self.secondary_hand: List[anydeck.Card] = []
+        self.current_hand_index = 0
+        self.primary_hand_total = self._calculate_hand_value(self.primary_hand)
+        self.secondary_hand_total = 0
+
+    def calculate_payout(self, result: str, bet: int) -> int:
+        """
+        Calculate payout based on game result.
+
+        Args:
+            result (str): The result string from game outcome
+            bet (int): The original bet amount
+
+        Returns:
+            int: The payout amount
+        """
+        if "Blackjack" in result:
+            return int(bet * 2.5)  # 3:2 payout for blackjack
+        elif "win" in result or "busts" in result:
+            return bet * 2  # 1:1 payout
+        elif "Push" in result:
+            return bet  # Return original bet
+        elif "Surrender" in result:
+            return bet // 2  # Return half the bet
+        else:
+            return 0  # Lose entire bet
+
+    async def process_payout(self) -> int:
+        """
+        Process the payout for the Blackjack game based on the game outcome.
+
+        Returns:
+            int: The total payout amount
+        """
+        # Retrieve user's current Basedbucks
+        user_data = kek_counter.find_one({"user_id": str(self.player_id)})
+        current_balance = user_data.get('basedbucks', 0)
+
+        # Handle split hand scenario
+        if self.is_split:
+            # Process primary hand payout
+            primary_result = self._determine_hand_result(self.primary_hand, self.primary_hand_total, self.dealer_hand)
+            primary_payout = self.calculate_payout(primary_result, self.bet_amount)
+
+            # Process secondary hand payout
+            secondary_result = self._determine_hand_result(self.secondary_hand, self.secondary_hand_total,
+                                                           self.dealer_hand)
+            secondary_payout = self.calculate_payout(secondary_result, self.secondary_bet)
+
+            # Calculate total payout
+            total_payout = primary_payout + secondary_payout
+
+        else:
+            # Determine result and calculate payout for single hand
+            result = self.determine_winner()
+            total_payout = self.calculate_payout(result, self.bet_amount)
+
+        # Update user's balance
+        new_balance = current_balance + total_payout
+
+        # Update user's Basedbucks in the database
+        kek_counter.update_one(
+            {"user_id": self.player_id},
+            {"$set": {"basedbucks": new_balance}}
+        )
+
+        return total_payout
+
+    def _determine_hand_result(self, player_hand: List[anydeck.Card], player_total: int,
+                               dealer_hand: List[anydeck.Card]) -> str:
+        """
+        Determine the result for a single hand when playing split.
+        """
+        dealer_total = self._calculate_hand_value(dealer_hand)
+
+        if player_total > 21:
+            return "Bust! You went over 21. Dealer wins. 💸"
+        elif dealer_total > 21:
+            return "Dealer busts! You win. Payout is 1:1. 💰"
+        elif player_total > dealer_total:
+            return "You win! Payout is 1:1. 💰"
+        elif player_total < dealer_total:
+            return "Dealer wins! You lose your bet. 💸"
+        else:
+            return "Push! It's a tie. Your bet is returned. 🔄"
 
     def _calculate_hand_value(self, hand: List[anydeck.Card]) -> int:
         """Calculate the total value of a hand, accounting for Aces."""
@@ -528,20 +622,43 @@ class BlackjackGame:
         return total
 
     def create_game_embed(self, reveal_dealer: bool = False) -> hikari.Embed:
-        """Create an embed showing the current game state."""
+        """
+        Modify game embed to show split hands if applicable.
+        """
         embed = hikari.Embed(title="🃏 Blackjack", color=0x2B2D31)
-        player_hand_str = ''
 
-        # Player's hand
+        # Show current hand
+        current_hand_str = ''
         for card in self.player_hand:
-            player_hand_str += ' '.join(card.suit) + card.face
+            current_hand_str += ' '.join(card.suit) + card.face
+
+        hand_label = "Your Primary Hand" if self.is_split and self.current_hand_index == 0 else \
+            "Your Secondary Hand" if self.is_split else "Your Hand"
+
         embed.add_field(
-            name=f"Your Hand (Total: {self.player_total})",
-            value=player_hand_str,
+            name=f"{hand_label} (Total: {self.player_total})",
+            value=current_hand_str,
             inline=False
         )
 
-        # Dealer's hand
+        # Show the other hand if split
+        if self.is_split:
+            other_hand = self.secondary_hand if self.current_hand_index == 0 else self.primary_hand
+            other_hand_total = self.secondary_hand_total if self.current_hand_index == 0 else self.primary_hand_total
+
+            other_hand_str = ''
+            for card in other_hand:
+                other_hand_str += ' '.join(card.suit) + card.face
+
+            other_hand_label = "Your Secondary Hand" if self.current_hand_index == 0 else "Your Primary Hand"
+
+            embed.add_field(
+                name=f"{other_hand_label} (Total: {other_hand_total})",
+                value=other_hand_str,
+                inline=False
+            )
+
+        # Dealer's hand (existing implementation)
         if reveal_dealer:
             dealer_hand_str = ''
             for card in self.dealer_hand:
@@ -584,13 +701,83 @@ class BlackjackGame:
         return False
 
     def hit(self) -> bool:
-        """Add a card to the player's hand."""
+        """
+        Modify hit method to work with split hands.
+        """
+        # Add card to the current hand
         new_card = self.deck.draw()
         self.player_hand.append(new_card)
+
+        # Update the corresponding split hand
+        if self.is_split:
+            if self.current_hand_index == 0:
+                self.primary_hand = self.player_hand.copy()
+                self.primary_hand_total = self._calculate_hand_value(self.primary_hand)
+            else:
+                self.secondary_hand = self.player_hand.copy()
+                self.secondary_hand_total = self._calculate_hand_value(self.secondary_hand)
+
+        # Recalculate hand total
         self.player_total = self._calculate_hand_value(self.player_hand)
 
         # Check for bust
         return self.player_total > 21
+
+    def split(self) -> bool:
+        """
+        Split the player's hand into two separate hands.
+
+        Returns:
+        bool: True if split is successful, False otherwise
+        """
+        # Check if splitting is possible (same card values)
+        if not self.can_split:
+            return False
+
+        # Move one card to the secondary hand
+        self.secondary_hand.append(self.primary_hand.pop())
+
+        # Draw a new card for each hand
+        self.primary_hand.append(self.deck.draw())
+        self.secondary_hand.append(self.deck.draw())
+
+        # Recalculate hand totals
+        self.primary_hand_total = self._calculate_hand_value(self.primary_hand)
+        self.secondary_hand_total = self._calculate_hand_value(self.secondary_hand)
+
+        # Update player hand to current hand
+        self.player_hand = self.primary_hand.copy()
+        self.player_total = self.primary_hand_total
+
+        # Update game state
+        self.is_split = True
+        self.current_hand_index = 0
+        self.can_split = False  # Can only split once
+
+        # Reset double down for individual hands
+        self.can_primary_double_down = True
+        self.can_secondary_double_down = True
+        self.can_double_down = False  # Disable overall double down
+
+        return True
+
+    def switch_hand(self) -> None:
+        """
+        Switch between primary and secondary hands during play.
+        """
+        if not self.is_split:
+            return
+
+        # Update current hand index
+        self.current_hand_index = 1 if self.current_hand_index == 0 else 0
+
+        # Switch active hand
+        if self.current_hand_index == 0:
+            self.player_hand = self.primary_hand.copy()
+            self.player_total = self.primary_hand_total
+        else:
+            self.player_hand = self.secondary_hand.copy()
+            self.player_total = self.secondary_hand_total
 
     def dealer_play(self) -> None:
         """Dealer's turn to play according to standard Blackjack rules."""
@@ -602,16 +789,19 @@ class BlackjackGame:
     def determine_winner(self) -> str:
         """Determine the winner of the game."""
         if self.player_total > 21:
+            self.bet_amount = 0
             return "Bust! You went over 21. Dealer wins. You lose your bet. 💸"
         elif self.dealer_total > 21:
+            self.bet_amount *= 2
             return "Dealer busts! You win. Payout is 1:1. 💰"
         elif self.player_total > self.dealer_total:
+            self.bet_amount *= 2
             return "You win! Payout is 1:1. 💰"
         elif self.player_total < self.dealer_total:
-            return "Dealer wins. You lose your bet. 💸"
+            self.bet_amount = 0
+            return "Dealer wins! You lose your bet. 💸"
         else:
             return "Push! It's a tie. Your bet is returned. 🔄"
-
 
 class BlackjackMenu(lightbulb.components.Menu):
     def __init__(self, game: BlackjackGame) -> None:
@@ -638,7 +828,9 @@ class BlackjackMenu(lightbulb.components.Menu):
                 self.on_split,
                 label="Split"
             )
-        if self.game.can_double_down:
+        if self.game.can_double_down or (self.game.is_split and
+                                         (self.game.current_hand_index == 0 and self.game.can_primary_double_down or
+                                          self.game.current_hand_index == 1 and self.game.can_secondary_double_down)):
             self.double_down_button = self.add_interactive_button(
                 hikari.ButtonStyle.PRIMARY,
                 self.on_double_down,
@@ -659,116 +851,298 @@ class BlackjackMenu(lightbulb.components.Menu):
                 label="Insurance"
             )
 
+    async def predicate(self, ctx: lightbulb.components.MenuContext) -> bool:
+        if ctx.user.id != self.game.player_id:
+            await ctx.respond("You are not the player in this game.", flags=hikari.MessageFlag.EPHEMERAL)
+            return False
+        return True
+
     async def on_hit(self, ctx: lightbulb.components.MenuContext) -> None:
-        # Player hits, gets a new card
+        """
+        Modified hit method to handle potential game end and payout.
+        """
         is_bust = self.game.hit()
 
         if is_bust:
-            # Player busts, end game
-            await ctx.respond(
-                embed=self.game.create_game_embed(reveal_dealer=True),
-                edit=True,
-                content="🃏 Bust! You went over 21.",
-                components=[]
-            )
-            return
+            # If split, switch to secondary hand. If no secondary hand, end game
+            if self.game.is_split:
+                self.game.switch_hand()
 
-        if self.game.check_player_blackjack() and not self.game.check_dealer_blackjack():
+                # If secondary hand is also bust, end game
+                if self.game.player_total > 21:
+                    self.game.secondary_bet = 0
+
+                    # Process payout
+                    total_payout = await self.game.process_payout()
+
+                    await ctx.respond(
+                        embed=self.game.create_game_embed(reveal_dealer=True),
+                        edit=True,
+                        content=f"🃏 Both hands bust! You lose.\nPayout: {total_payout} Basedbucks",
+                        components=[]
+                    )
+                    return
+
+                # Continue with secondary hand
+                self.game.bet_amount = 0
+                await ctx.respond(
+                    content="🃏 First hand bust. Switching to secondary hand.",
+                    embed=self.game.create_game_embed(),
+                    edit=True,
+                    components=self
+                )
+                return
+
+            # Regular bust without split
+            self.game.bet_amount = 0
+
+            # Process payout
+            total_payout = await self.game.process_payout()
+
             await ctx.respond(
-                content="🃏 Blackjack! You have a 21. Payout is 1:1.",
                 embed=self.game.create_game_embed(reveal_dealer=True),
                 edit=True,
-                components=[]
-            )
-            return
-        elif self.game.check_player_blackjack() and self.game.check_dealer_blackjack():
-            await ctx.respond(
-                content="🃏 The dealer has a natural blackjack! You lose.",
-                embed=self.game.create_game_embed(reveal_dealer=True),
-                edit=True,
+                content=f"🃏 Bust! You went over 21.\nPayout: {total_payout} Basedbucks",
                 components=[]
             )
             return
 
         # Continue game with updated embed
         await ctx.respond(
-            content=f"🃏 Hit! you got a {self.game.player_hand[-1].suit}{self.game.player_hand[-1].face}.",
+            content=f"🃏 Hit! You got a {self.game.player_hand[-1].suit}{self.game.player_hand[-1].face}.",
             embed=self.game.create_game_embed(),
             edit=True,
             components=self
         )
 
     async def on_stand(self, ctx: lightbulb.components.MenuContext) -> None:
-        # Dealer plays their hand
-        self.game.dealer_play()
-
-        # Determine winner
-        result = self.game.determine_winner()
-
-        await ctx.respond(
-            embed=self.game.create_game_embed(reveal_dealer=True),
-            edit=True,
-            content=f"🃏 {result}",
-            components=[]
-        )
-
-    async def on_split(self, ctx: lightbulb.components.MenuContext) -> None:
-        # Placeholder for split functionality
-        await ctx.respond("Split not implemented yet!", edit=True, components=[])
-
-    async def on_double_down(self, ctx: lightbulb.components.MenuContext) -> None:
-        # Double the bet, take one final card
-        if self.game.can_double_down:
-            self.game.bet_amount *= 2
-            is_bust = self.game.hit()
-
-            if is_bust:
+        """
+        Modified stand method to handle split hands and payout.
+        """
+        if self.game.is_split:
+            # If currently on primary hand, switch to secondary
+            if self.game.current_hand_index == 0:
+                self.game.switch_hand()
                 await ctx.respond(
-                    embed=self.game.create_game_embed(reveal_dealer=True),
+                    content="🃏 Switching to secondary hand.",
+                    embed=self.game.create_game_embed(),
                     edit=True,
-                    content="🃏 Bust! You went over 21 after doubling down.",
-                    components=[]
+                    components=self
                 )
                 return
 
-            # Automatically stand after doubling down
-            self.game.dealer_play()
-            result = self.game.determine_winner()
+        # Final stand - play dealer's hand
+        self.game.dealer_play()
+
+        # Determine winner
+        if self.game.is_split:
+            # For split hands, handle potential different outcomes
+            result_primary = self._determine_hand_result(
+                self.game.primary_hand,
+                self.game.primary_hand_total,
+                self.game.dealer_hand
+            )
+            result_secondary = self._determine_hand_result(
+                self.game.secondary_hand,
+                self.game.secondary_hand_total,
+                self.game.dealer_hand
+            )
+
+            result_text = f"Primary Hand: {result_primary}\nSecondary Hand: {result_secondary}"
+
+            # Process payout for split hands
+            total_payout = await self.game.process_payout()
 
             await ctx.respond(
                 embed=self.game.create_game_embed(reveal_dealer=True),
                 edit=True,
-                content=f"🃏 {result} (Double Down)",
+                content=f"🃏 Game Results:\n{result_text}\nTotal Payout: {total_payout} Basedbucks",
+                components=[]
+            )
+        else:
+            # Regular single hand result
+            result = self.game.determine_winner()
+
+            # Process payout
+            total_payout = await self.game.process_payout()
+
+            await ctx.respond(
+                embed=self.game.create_game_embed(reveal_dealer=True),
+                edit=True,
+                content=f"🃏 {result}\nPayout: {total_payout} Basedbucks",
                 components=[]
             )
 
+    async def on_split(self, ctx: lightbulb.components.MenuContext) -> None:
+        """
+        Handle splitting the player's hand.
+        """
+        # Attempt to split the hand
+        if self.game.split():
+            # Update the embed to show both hands
+            self.split_button.disabled = True
+            self.game.secondary_bet = self.game.bet_amount
+            await ctx.respond(
+                content="🃏 Hand split! Playing first hand.",
+                embed=self.game.create_game_embed(),
+                edit=True,
+                components=self
+            )
+        else:
+            await ctx.respond(
+                content="🃏 Cannot split this hand.",
+                edit=True,
+                components=self
+            )
+
+    async def on_double_down(self, ctx: lightbulb.components.MenuContext) -> None:
+        # Handle double down for both regular and split hands
+        if self.game.is_split:
+            # Check which hand is currently active
+            if self.game.current_hand_index == 0 and self.game.can_primary_double_down:
+                # Double the bet for primary hand
+                self.game.bet_amount *= 2
+                self.game.can_primary_double_down = False
+            elif self.game.current_hand_index == 1 and self.game.can_secondary_double_down:
+                # Double the bet for secondary hand
+                self.game.secondary_bet *= 2
+                self.game.can_secondary_double_down = False
+            else:
+                await ctx.respond(
+                    content="🃏 Cannot double down on this hand.",
+                    edit=True,
+                    components=self
+                )
+                return
+
+            # Take one final card
+            is_bust = self.game.hit()
+
+            if is_bust:
+                # Switch to secondary hand if available
+                self.game.switch_hand()
+
+                # If secondary hand is also bust, end game
+                if self.game.player_total > 21:
+                    self.game.secondary_bet = 0
+
+                    # Process payout
+                    total_payout = await self.game.process_payout()
+
+                    await ctx.respond(
+                        embed=self.game.create_game_embed(reveal_dealer=True),
+                        edit=True,
+                        content=f"🃏 Both hands bust after doubling down!\nPayout: {total_payout} Basedbucks",
+                        components=[]
+                    )
+                    return
+
+                # Continue with secondary hand
+                await ctx.respond(
+                    content="🃏 First hand bust after doubling down. Switching to secondary hand.",
+                    embed=self.game.create_game_embed(),
+                    edit=True,
+                    components=self
+                )
+                return
+
+        else:
+            # Regular single hand double down
+            if self.game.can_double_down:
+                # Double the bet
+                self.game.bet_amount *= 2
+                self.game.can_double_down = False
+                is_bust = self.game.hit()
+
+                if is_bust:
+                    # Process payout for bust
+                    total_payout = await self.game.process_payout()
+
+                    await ctx.respond(
+                        embed=self.game.create_game_embed(reveal_dealer=True),
+                        edit=True,
+                        content=f"🃏 Bust! You went over 21 after doubling down.\nPayout: {total_payout} Basedbucks",
+                        components=[]
+                    )
+                    return
+
+                # Automatically stand after doubling down
+                self.game.dealer_play()
+                result = self.game.determine_winner()
+
+                # Process payout
+                total_payout = await self.game.process_payout()
+
+                await ctx.respond(
+                    embed=self.game.create_game_embed(reveal_dealer=True),
+                    edit=True,
+                    content=f"🃏 {result} (Double Down)\nPayout: {total_payout} Basedbucks",
+                    components=[]
+                )
+
     async def on_surrender(self, ctx: lightbulb.components.MenuContext) -> None:
         # Player surrenders, loses half the bet
+        # Ensure surrender result is consistent with calculate_payout method
+        result = "Surrender! Half your bet is returned. 🏳️"
+
+        # Process payout
+        total_payout = await self.game.process_payout()
+
         await ctx.respond(
             embed=self.game.create_game_embed(reveal_dealer=True),
             edit=True,
-            content="🃏 You surrendered. Half your bet is returned.",
+            content=f"🃏 {result}\nPayout: {total_payout} Basedbucks",
             components=[]
         )
 
     async def on_insurance(self, ctx: lightbulb.components.MenuContext) -> None:
         # Check if dealer has blackjack
+        self.game.insurance_bet = self.game.bet_amount // 2
+
         if self.game.check_dealer_blackjack():
+            # Insurance pays 2:1 if dealer has blackjack
+            self.game.bet_amount = 0
+            self.game.bet_amount += self.game.insurance_bet * 2
+
+            # Process payout
+            total_payout = await self.game.process_payout()
+
             await ctx.respond(
                 embed=self.game.create_game_embed(reveal_dealer=True),
                 edit=True,
-                content="🃏 Dealer has Blackjack! Insurance pays out in 2:1.",
+                content=f"🃏 Dealer has Blackjack! Insurance pays out.\nPayout: {total_payout} Basedbucks",
                 components=[]
             )
         else:
             self.insurance_button.disabled = True
+            self.game.insurance_bet = 0
+
+            # Process payout (will result in losing insurance bet)
+            total_payout = await self.game.process_payout()
+
             await ctx.respond(
                 embed=self.game.create_game_embed(),
-                content="🃏 Dealer does not have Blackjack. You lose the insurance bet. Game continues as normal.",
+                content=f"🃏 Dealer does not have Blackjack. You lose the insurance bet.\nPayout: {total_payout} Basedbucks",
                 edit=True,
                 components=self
             )
 
+    def _determine_hand_result(self, player_hand: List[anydeck.Card], player_total: int, dealer_hand: List[anydeck.Card]) -> str:
+        """
+        Determine the result for a single hand when playing split.
+        """
+        dealer_total = self.game._calculate_hand_value(dealer_hand)
+
+        if player_total > 21:
+            return "Bust! You went over 21. Dealer wins. 💸"
+        elif dealer_total > 21:
+            return "Dealer busts! You win. Payout is 1:1. 💰"
+        elif player_total > dealer_total:
+            return "You win! Payout is 1:1. 💰"
+        elif player_total < dealer_total:
+            return "Dealer wins! You lose your bet. 💸"
+        else:
+            return "Push! It's a tie. Your bet is returned. 🔄"
 
 @loader.command()
 class BlackjackStart(
@@ -814,7 +1188,43 @@ class BlackjackStart(
         try:
             await menu.attach(client, wait=True, timeout=120)
         except asyncio.TimeoutError:
-            await ctx.edit_response(resp, "Timed out!", components=[])
+            await ctx.edit_response(
+                resp,
+                content="🃏 Blackjack game timed out. Game over.",
+                components=[]
+            )
+
+@loader.command()
+class BlackjackHelp(
+    lightbulb.SlashCommand,
+    name="blackjack-help",
+    description="Get help with playing Blackjack."
+):
+
+        @lightbulb.invoke
+        async def blackjack_help(self, ctx: lightbulb.Context) -> None:
+            embed = hikari.Embed(
+                title="🃏 Blackjack Help",
+                color=0x2B2D31,
+                description="Blackjack is a card game where the goal is to get as close to 21 as possible without going over."
+            )
+            embed.add_field(
+                name="Game Rules",
+                value="• The player and dealer are each dealt two cards.\n"
+                    "• The player can choose to hit (draw a card) or stand (end turn).\n"
+                    "• The dealer must hit until their hand value is 17 or higher.\n"
+                    "• Aces can be counted as 1 or 11, face cards are worth 10.\n"
+                    "• If the player's hand value exceeds 21, they bust and lose the game.\n"
+                    "• The player wins if their hand value is higher than the dealer's without busting."
+            )
+            embed.add_field(
+                name="Special Actions",
+                value="• **Split:** If the player's initial hand has two cards of the same value, they can split the hand into two separate hands. The secondary hand has the same bet as the primary hand and has its own winnings.\n"
+                    "• **Double Down:** The player can double their bet and draw one final card.\n"
+                    "• **Surrender:** The player can surrender and lose half their bet.\n"
+                    "• **Insurance:** If the dealer's visible card is an Ace, the player can buy insurance equal to half your original wager against a dealer Blackjack. If the dealer has Blackjack, the player wins 2:1. If not, the insurance bet is lost and the game continues as normal."
+            )
+            await ctx.respond(embed=embed)
 
 # Banking Module
 
@@ -1235,85 +1645,141 @@ def save_stock_price_history(stock_data):
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
     stock_history.delete_many({"timestamp": {"$lt": cutoff_date}})
 
-ECONOMIC_EVENT_PROBABILITY = 0.05  # 5% chance of an economic event
+ECONOMIC_EVENT_PROBABILITY = 0.05  # 5% chance of an original economic event
+MARKET_WIDE_BOOM_PROBABILITY = 0.01  # 1% chance of market-wide boom
+MARKET_WIDE_BUST_PROBABILITY = 0.01  # 1% chance of market-wide bust
+MEGA_EVENT_PROBABILITY = 0.001  # 0.1% chance of massive price swing
+INTER_STOCK_EVENT_PROBABILITY = 0.02  # 2% chance of one stock rising while another falls
+
+MEGA_EVENT_MULTIPLIER = 10  # 1000% price change
+INTER_STOCK_MULTIPLIER = 1.5  # 50% price change for competing stocks
 BOOM_MULTIPLIER = 1.5  # 50% price increase during a boom
 BUST_MULTIPLIER = 0.5  # 50% price decrease during a bust
 
-def generate_stock_price_change(current_price, stock_volatility, is_economic_event=False):
+
+def generate_stock_price_change(
+    current_price,
+    stock_volatility,
+    stocks_data=None,
+    symbol=None,
+    global_event=None  # New parameter to handle global events
+):
     """
-    Generate a more realistic stock price change using a random walk model
-    with stock-specific volatility and potential economic events.
+    Enhanced stock price change generation with multiple economic event types.
 
     Args:
         current_price (float): Current stock price
-        stock_volatility (float): Maximum daily volatility for this stock
-        is_economic_event (bool): Whether this is part of an economic event
+        stock_volatility (float): Stock's default volatility
+        stocks_data (dict, optional): All stocks data for inter-stock events
+        symbol (str, optional): Current stock symbol
+        global_event (dict, optional): Global market event details
 
     Returns:
-        float: New stock price after simulated change
+        tuple: (new_price, event_description, competing_stock_info)
     """
-    if is_economic_event:
-        # During an economic event, apply a significant multiplier
+    if global_event:
+        if global_event['type'] == 'boom':
+            return round(current_price * BOOM_MULTIPLIER, 2), "📈 Global Economic Boom! All stocks rise in value!", None
+        elif global_event['type'] == 'bust':
+            return round(current_price * BUST_MULTIPLIER, 2), "📉 Global Economic Downturn! All stocks fall in value!", None
+
+    # Original economic event logic
+    if random.random() < ECONOMIC_EVENT_PROBABILITY:
         event_type = random.choice(['boom', 'bust'])
-
         if event_type == 'boom':
-            new_price = current_price * BOOM_MULTIPLIER
-            event_description = "Economic Boom!"
+            return round(current_price * BOOM_MULTIPLIER, 2), f"Economic Boom affecting {symbol}! Stock price rises quickly!"
         else:
-            new_price = current_price * BUST_MULTIPLIER
-            event_description = "Economic Bust!"
+            return round(current_price * BUST_MULTIPLIER, 2), f"Economic Bust affecting {symbol}! Stock price falls rapidly!"
 
-        return round(new_price, 2), event_description
+    # Mega Event (Ultra-rare massive price swing)
+    mega_event_roll = random.random()
+    if mega_event_roll < MEGA_EVENT_PROBABILITY:
+        direction = random.choice([-1, 1])
+        new_price = current_price * (MEGA_EVENT_MULTIPLIER ** direction)
+        event_desc = "🚨 MEGA EVENT: " + (
+            f"Unprecedented Stock Surge! {symbol} is experiencing an incredibly large price surge!" if direction > 0 else
+            f"Catastrophic Stock Collapse! " f"{symbol} is experiencing an incredibly large price crash!"
+        )
+        return round(new_price, 2), event_desc
 
-    # Normal price change logic
-    # Randomly choose volatility within the stock's volatility range
+    # Inter-Stock Event (One stock rises, another falls)
+    if (stocks_data and symbol and
+            random.random() < INTER_STOCK_EVENT_PROBABILITY):
+        # Select a random competing stock
+        competing_stocks = [
+            s for s in stocks_data.keys() if s != symbol
+        ]
+        if competing_stocks:
+            competing_symbol = random.choice(competing_stocks)
+
+            # Rise for current stock
+            new_price = current_price * INTER_STOCK_MULTIPLIER
+
+            # Fall for competing stock
+            competing_current_price = stocks_data[competing_symbol]['price']
+            competing_new_price = competing_current_price * (1 / INTER_STOCK_MULTIPLIER)
+
+            event_desc = f"🔀 Competitors face off: {symbol} Rises, {competing_symbol} Falls!"
+            return (
+                round(new_price, 2),
+                event_desc,
+                {
+                    'symbol': competing_symbol,
+                    'new_price': round(competing_new_price, 2)
+                }
+            )
+
+    # Normal price change logic (if no special event occurs)
     volatility = random.uniform(0.01, stock_volatility)
-
-    # Generate price change with some randomness and trend
-    change_direction = random.choice([-1, 1])  # Randomly go up or down
-    price_change = current_price * volatility * change_direction
-
-    # Limit the maximum change percentage
+    price_change = current_price * volatility * random.choice([-1, 1])
     max_change = current_price * MAX_DAILY_CHANGE
     price_change = max(-max_change, min(max_change, price_change))
-
     new_price = current_price + price_change
 
-    # Enforce price boundaries
     return max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price)), None
+
 
 @loader.task(lightbulb.crontrigger("0,30 * * * *"))
 async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
     """
-    Periodically update stock prices with some randomness in timing
-    and occasional economic events.
+    Periodically update stock prices with enhanced economic events.
     """
-
-    # Determine if an economic event occurs
-    economic_event = random.random() < ECONOMIC_EVENT_PROBABILITY
-    event_stock = None
-
-    # Find existing stocks or initialize if not present
+    # Fetch existing stocks
     existing_stocks = stocks.find_one({}) or {"stocks": {}}
+    stocks_dict = existing_stocks["stocks"]
+
+    global_event = None
+
+    if random.random() < MARKET_WIDE_BOOM_PROBABILITY:
+        global_event = {
+            'type': 'boom',
+            'multiplier': BOOM_MULTIPLIER,
+            'message': "📈 Global Economic Boom! All stocks surging!"
+        }
+    elif random.random() < MARKET_WIDE_BUST_PROBABILITY:
+        global_event = {
+            'type': 'bust',
+            'multiplier': BUST_MULTIPLIER,
+            'message': "📉 Global Economic Downturn! All stocks plummeting!"
+        }
+
+    # Keep track of any significant events
+    significant_events = []
 
     for symbol, stock_info in existing_stocks["stocks"].items():
-        # Determine if this stock is affected by the economic event
-        is_event_stock = economic_event and (event_stock is None)
-        if is_event_stock:
-            event_stock = symbol
-
-        # Get current stock price and volatility
         current_price = stock_info.get("price")
-        stock_volatility = stock_info.get("volatility", 0.15)  # Default to 15% if not specified
+        stock_volatility = stock_info.get("volatility", 0.15)
 
-        # Generate new price
-        new_price, event_description = generate_stock_price_change(
+        # Generate the new price and possible event description
+        new_price, description, competing_stock_info = generate_stock_price_change(
             current_price,
             stock_volatility,
-            is_economic_event=(symbol == event_stock)
+            stocks_data=stocks_dict,
+            symbol=symbol,
+            global_event=global_event  # Pass global event
         )
 
-        # Prepare update details
+        # Prepare updated stock details
         update_details = {
             "name": stock_info["name"],
             "price": round(new_price, 2),
@@ -1321,35 +1787,61 @@ async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
             "last_updated": datetime.now(timezone.utc)
         }
 
-        # Add event description if applicable
-        if event_description:
+        # Add event information if an event occurred
+        if description:
             update_details["event"] = {
-                "type": event_description,
+                "type": description,
                 "timestamp": datetime.now(timezone.utc)
             }
+            significant_events.append((symbol, description))
 
-        # Update stock data
+        # Update the stock in the database
         stocks.update_one(
-            {},  # Update the single document
-            {
-                "$set": {
-                    f"stocks.{symbol}": update_details
-                }
-            },
-            upsert=True  # Create document if it doesn't exist
+            {},
+            {"$set": {f"stocks.{symbol}": update_details}},
+            upsert=True
         )
 
-    # Refresh the stock data after updates
+        # Handle competing stock price change for inter-stock events
+        if competing_stock_info:
+            competing_symbol = competing_stock_info['symbol']
+            competing_new_price = competing_stock_info['new_price']
+
+            competing_stock = existing_stocks["stocks"][competing_symbol]
+            competing_update_details = {
+                "name": competing_stock["name"],
+                "price": competing_new_price,
+                "volatility": competing_stock.get("volatility", 0.15),
+                "last_updated": datetime.now(timezone.utc)
+            }
+
+            stocks.update_one(
+                {},
+                {"$set": {f"stocks.{competing_symbol}": competing_update_details}},
+                upsert=True
+            )
+
     updated_stocks = stocks.find_one({})
 
     # Save historical data
     save_stock_price_history(updated_stocks)
 
-    # Optional: Log the economic event if it occurred
-    if economic_event and event_stock:
-        print(f"Economic event occurred: {event_description} affecting {event_stock}")
+    # Announce significant events
+    if global_event or significant_events:
         for channel in ECONOMIC_UPDATE_CHANNELS:
-            await client.app.rest.create_message(channel, content=f"📈 {event_description} affecting {event_stock}!")
+            # Announce global event first
+            if global_event:
+                await client.app.rest.create_message(
+                    channel,
+                    content=global_event['message']
+                )
+
+            # Then announce specific stock events
+            for _, event_description in significant_events:
+                await client.app.rest.create_message(
+                    channel,
+                    content=f"🔔 Economic Event: {event_description}"
+                )
 
 async def generate_stock_price_graph():
     """
@@ -1554,6 +2046,8 @@ class CheckStocks(
 ):
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context):
+
+        await ctx.defer()
         # Retrieve current stock information
         stock_data = stocks.find_one({})
         user_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
@@ -1612,15 +2106,13 @@ class CheckStocks(
         # Generate stock price graph
         try:
             stock_graph = await generate_stock_price_graph()
-
-            # Send both the embed and the graph
-            await ctx.respond(
+            resp = await ctx.respond(
                 embed=embed,
                 attachment=stock_graph
             )
         except Exception as e:
-            # Fallback if graph generation fails
-            await ctx.respond(
-                embed=embed,
+            # Use edit_initial_response instead of responding again
+            await ctx.edit_response(
+                resp,
                 content=f"Could not generate stock price graph: {str(e)}"
             )
