@@ -35,8 +35,9 @@ CHANNEL_IDS = [
 async def on_starting(_: hikari.StartingEvent) -> None:
     # Load any extensions
     print("Loading extensions...")
-    await client.load_extensions("extensions.data", "extensions.gambling", "extensions.word_cloud")
+    await client.load_extensions("extensions.data", "extensions.gambling", "extensions.word_cloud", "extensions.meme")
     extensions.gambling.initialize_stocks(stocks)
+    extensions.gambling.check_stock_initialization(stocks)
     # Start the bot - make sure commands are synced properly
     await client.start()
 

@@ -74,6 +74,8 @@ class GetInfo(
 
         :param ctx: The context of the command invocation
         """
+        await ctx.defer()
+
         try:
             # Determine the target user (command invoker or specified user)
             target_user = self.user or ctx.user

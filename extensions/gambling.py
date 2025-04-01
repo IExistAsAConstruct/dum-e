@@ -307,13 +307,15 @@ class RaiseGamble(
 class CancelGamble(
     lightbulb.SlashCommand,
     name="cancel-gamble",
-    description="Cancel a currently running bet. Admins and bot owner only.",
-    hooks=[me_only]
+    description="Cancel a currently running bet. Admins and bot owner only."
 ):
     id = lightbulb.string("id", "ID of the bet you want to cancel.")
 
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context) -> None:
+
+        await ctx.defer()
+
         bet_data = gambling_list.find_one({"bet_id": self.id})
         if not bet_data:
             await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
@@ -340,12 +342,14 @@ class WinGamble(
     lightbulb.SlashCommand,
     name="succeed-gamble",
     description="End a bet on the side of the believers. Admins and bot owner only.",
-    hooks=[me_only]
 ):
     id = lightbulb.string("id", "ID of the bet that succeeded.")
 
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context) -> None:
+
+        await ctx.defer()
+
         bet_data = gambling_list.find_one({"bet_id": self.id})
         if not bet_data:
             await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
@@ -383,13 +387,15 @@ class WinGamble(
 class LoseGamble(
     lightbulb.SlashCommand,
     name="fail-gamble",
-    description="End a bet on the side of the non-believers. Admins and bot owner only.",
-    hooks=[me_only]
+    description="End a bet on the side of the non-believers. Admins and bot owner only."
 ):
     id = lightbulb.string("id", "ID of the bet that failed.")
 
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context):
+
+        await ctx.defer()
+
         bet_data = gambling_list.find_one({"bet_id": self.id})
         if not bet_data:
             await ctx.respond("There is no bet with that ID!", flags=hikari.MessageFlag.EPHEMERAL)
@@ -1365,7 +1371,6 @@ class BankLoan(
     async def invoke(self, ctx: lightbulb.Context):
         player_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
         total_debt = player_data.get("total_debt", 0)
-        total_loans = sum(debt["loan amount"] for debt in player_data.get("loan_debt", []))
         credit_score = player_data.get("credit_score", 700)  # Assuming a default credit score of 700
 
         debt_threshold = 500000  # Set your debt threshold here
@@ -1396,11 +1401,11 @@ class BankLoan(
         kek_counter.update_one(
             {"user_id": str(ctx.member.id)},
             {
-                "$inc": {'total_debt': self.amount, 'basedbucks': self.amount},
+                "$inc": {'total_debt': round(self.amount, 2), 'basedbucks': round(self.amount, 2)},
                 "$push": {
                     "loan_debt": {
                         "date": datetime.now(timezone.utc),
-                        "loan amount": self.amount,
+                        "loan amount": round(self.amount, 2),
                         "apr": apr,
                         "last_increase": datetime.now(timezone.utc)
                     }
@@ -1409,7 +1414,7 @@ class BankLoan(
             },
             upsert=True,
         )
-        await ctx.respond(f"{ctx.member.mention} borrowed {self.amount} Basedbucks from the bank! Your new credit score is {new_credit_score}.")
+        await ctx.respond(f"{ctx.member.mention} borrowed {round(self.amount, 2)} Basedbucks from the bank! Your new credit score is {new_credit_score}.")
 
 @loader.command
 class RepayBank(
@@ -1454,11 +1459,11 @@ class RepayBank(
 
         kek_counter.update_one(
             {"user_id": str(ctx.member.id)},
-            {"$set": {"loan_debt": player_data["loan_debt"], "total_debt": total_debt, "credit_score": new_credit_score},
-            "$inc": {"basedbucks": original_amount * -1}}
+            {"$set": {"loan_debt": player_data["loan_debt"], "total_debt": round(total_debt, 2), "credit_score": new_credit_score},
+            "$inc": {"basedbucks": round(original_amount * -1, 2)}}
         )
 
-        await ctx.respond(f"{ctx.member.mention} repaid {original_amount} Basedbucks to the bank! Your new credit score is {new_credit_score}.")
+        await ctx.respond(f"{ctx.member.mention} repaid {round(original_amount, 2)} Basedbucks to the bank! Your new credit score is {new_credit_score}.")
 
 @loader.command
 class CheckDebt(
@@ -1560,65 +1565,220 @@ class WireMoney(
 
 ECONOMIC_UPDATE_CHANNELS = [1178375823812735069, 1121479899841044510]  # Channel IDs for economic updates
 
-VOLATILITY_RANGE = (0.01, 0.15)  # 1-15% daily price change
-MAX_DAILY_CHANGE = 0.2  # 20% max daily change
-MIN_STOCK_PRICE = 0.01  # Minimum stock price
-MAX_STOCK_PRICE = 1000  # Maximum stock price
+VOLATILITY_RANGE = (0.01, 0.20)
+MAX_DAILY_CHANGE = 0.25
+MIN_STOCK_PRICE = 0.01
+MAX_STOCK_PRICE = 10000
 
 def initialize_stocks(stocks_collection):
     """
-    Initialize stocks with starting prices and custom volatilities.
-
-    Args:
-        stocks_collection: MongoDB collection for stocks
-
-    Returns:
-        bool: True if stocks were initialized, False if already existed
+    Initialize stocks with smart updating: adds new stocks and updates missing fields
+    while preserving existing data.
     """
-    # Check if stocks already exist
-    existing_stocks = stocks_collection.find_one({})
-    if existing_stocks and "stocks" in existing_stocks:
-        print("Stocks already initialized. Skipping initialization.")
-        return False
+    # Get existing stocks
+    existing_data = stocks_collection.find_one({})
+    existing_stocks = existing_data.get("stocks", {}) if existing_data else {}
 
-    # Initial stock data with custom volatilities
-    # Volatility represents the maximum daily price change percentage
+    # Template for new stocks with default values
     initial_stocks = {
+        # TECH SECTOR
         "KEKI": {
-            "name": "Kekistocracy Inc.",
+            "name": "Kekistocracy Tech Inc.",
+            "sector": "TECH",
             "price": 100.00,
-            "volatility": 0.15,  # High volatility (15%)
-            "last_updated": datetime.now(timezone.utc)
+            "volatility": 0.18,
+            "market_cap": 1000000,
+            "dividend_yield": 0.02,
+            "last_split": None,
+            "description": "Pioneer in meme-based artificial intelligence"
         },
-        "BSDL": {
-            "name": "BasedLife LLC",
+        "WOJK": {
+            "name": "Wojak Systems",
+            "sector": "TECH",
             "price": 85.50,
-            "volatility": 0.10,  # Moderate volatility (10%)
-            "last_updated": datetime.now(timezone.utc)
+            "volatility": 0.20,
+            "market_cap": 750000,
+            "dividend_yield": 0.01,
+            "last_split": None,
+            "description": "Emotional recognition AI powered by wojak technology"
         },
+        "PEPE": {
+            "name": "PepeTech Solutions",
+            "sector": "TECH",
+            "price": 69.42,
+            "volatility": 0.22,
+            "market_cap": 800000,
+            "dividend_yield": 0.00,
+            "last_split": None,
+            "description": "Rare digital asset authentication systems"
+        },
+
+        # FINANCE SECTOR
+        "BSDL": {
+            "name": "BasedLife Financial",
+            "sector": "FINANCE",
+            "price": 85.50,
+            "volatility": 0.12,
+            "market_cap": 750000,
+            "dividend_yield": 0.04,
+            "last_split": None,
+            "description": "Traditional banking with based principles"
+        },
+        "YELO": {
+            "name": "LibRight Capital",
+            "sector": "FINANCE",
+            "price": 158.99,
+            "volatility": 0.15,
+            "market_cap": 900000,
+            "dividend_yield": 0.05,
+            "last_split": None,
+            "description": "Yellow quadrant investment strategies"
+        },
+        "ANCP": {
+            "name": "AnCap Holdings",
+            "sector": "FINANCE",
+            "price": 177.77,
+            "volatility": 0.17,
+            "market_cap": 850000,
+            "dividend_yield": 0.03,
+            "last_split": None,
+            "description": "Private currency and gold-based investments"
+        },
+
+        # ENTERTAINMENT SECTOR
         "FUNI": {
-            "name": "FunniColors",
+            "name": "FunniColors Entertainment",
+            "sector": "ENTERTAINMENT",
             "price": 75.25,
-            "volatility": 0.08,  # Lower volatility (8%)
-            "last_updated": datetime.now(timezone.utc)
+            "volatility": 0.15,
+            "market_cap": 500000,
+            "dividend_yield": 0.01,
+            "last_split": None,
+            "description": "Political compass meme streaming platform"
         },
+        "QUAD": {
+            "name": "Quadrant Media",
+            "sector": "ENTERTAINMENT",
+            "price": 42.00,
+            "volatility": 0.16,
+            "market_cap": 450000,
+            "dividend_yield": 0.02,
+            "last_split": None,
+            "description": "Cross-compass unity content production"
+        },
+        "GRIL": {
+            "name": "Grillmaster Networks",
+            "sector": "ENTERTAINMENT",
+            "price": 133.70,
+            "volatility": 0.13,
+            "market_cap": 600000,
+            "dividend_yield": 0.03,
+            "last_split": None,
+            "description": "Centrist cooking shows and grilling content"
+        },
+
+        # CRYPTO SECTOR
         "CRYG": {
-            "name": "Cring Cryptoo",
+            "name": "Cring Crypto Exchange",
+            "sector": "CRYPTO",
             "price": 55.75,
-            "volatility": 0.20,  # Very high volatility (20%)
-            "last_updated": datetime.now(timezone.utc)
+            "volatility": 0.25,
+            "market_cap": 250000,
+            "dividend_yield": 0.00,
+            "last_split": None,
+            "description": "Meme-based cryptocurrency exchange"
+        },
+        "REDP": {
+            "name": "RedPilled Chain",
+            "sector": "CRYPTO",
+            "price": 88.88,
+            "volatility": 0.28,
+            "market_cap": 300000,
+            "dividend_yield": 0.00,
+            "last_split": None,
+            "description": "Decentralized philosophy token platform"
+        },
+        "MEME": {
+            "name": "MemeCoin Technologies",
+            "sector": "CRYPTO",
+            "price": 42.69,
+            "volatility": 0.30,
+            "market_cap": 200000,
+            "dividend_yield": 0.00,
+            "last_split": None,
+            "description": "Political compass NFT marketplace"
         }
     }
 
-    # Update the stocks collection
-    stocks_collection.update_one(
-        {},  # Match the single document
-        {"$set": {"stocks": initial_stocks}},
-        upsert=True  # Create if doesn't exist
-    )
+    updates = {}
+    new_stocks = False
 
-    print("Stocks initialized successfully!")
-    return True
+    for symbol, template_data in initial_stocks.items():
+        if symbol not in existing_stocks:
+            # This is a completely new stock
+            updates[f"stocks.{symbol}"] = template_data
+            new_stocks = True
+            print(f"Adding new stock: {symbol}")
+        else:
+            # Stock exists, check for missing fields
+            existing_stock = existing_stocks[symbol]
+            missing_fields = {}
+
+            for field, default_value in template_data.items():
+                if field not in existing_stock:
+                    missing_fields[field] = default_value
+                    print(f"Adding missing field '{field}' to {symbol}")
+
+            if missing_fields:
+                updates[f"stocks.{symbol}"] = {
+                    **existing_stock,  # Preserve existing data
+                    **missing_fields  # Add missing fields
+                }
+
+    if updates:
+        # Use $set to update only specific fields
+        stocks_collection.update_one(
+            {},
+            {"$set": updates},
+            upsert=True
+        )
+
+        if new_stocks:
+            print("Added new stocks and updated existing ones!")
+        else:
+            print("Updated existing stocks with missing fields!")
+        return True
+    else:
+        print("No updates needed - all stocks are fully initialized.")
+        return False
+
+def check_stock_initialization(stocks_collection):
+    """
+    Check which stocks and fields are initialized.
+    Useful for debugging and verification.
+    """
+    existing_data = stocks_collection.find_one({})
+    if not existing_data or "stocks" not in existing_data:
+        print("No stocks initialized yet")
+        return
+
+    template_fields = {
+        "name", "sector", "price", "volatility", "market_cap",
+        "dividend_yield", "last_split",
+        "description", "last_updated"
+    }
+
+    print("\nStock Initialization Status:")
+    print("-" * 50)
+
+    for symbol, stock_data in existing_data["stocks"].items():
+        print(f"\n{symbol}:")
+        print("  Fields present:", ", ".join(stock_data.keys()))
+        missing = template_fields - set(stock_data.keys())
+        if missing:
+            print("  Missing fields:", ", ".join(missing))
+        else:
+            print("  ✓ Fully initialized")
 
 def save_stock_price_history(stock_data):
     """
@@ -1648,24 +1808,169 @@ def save_stock_price_history(stock_data):
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
     stock_history.delete_many({"timestamp": {"$lt": cutoff_date}})
 
-ECONOMIC_EVENT_PROBABILITY = 0.03  # 3% chance of an original economic event
-MARKET_WIDE_BOOM_PROBABILITY = 0.01  # 1% chance of market-wide boom
-MARKET_WIDE_BUST_PROBABILITY = 0.01  # 1% chance of market-wide bust
-MEGA_EVENT_PROBABILITY = 0.001  # 0.1% chance of massive price swing
-INTER_STOCK_EVENT_PROBABILITY = 0.01  # 2% chance of one stock rising while another falls
+ECONOMIC_EVENT_PROBABILITY = 0.01  # 1% chance of an original economic event
+MARKET_WIDE_BOOM_PROBABILITY = 0.005  # 0.5% chance of market-wide boom
+MARKET_WIDE_BUST_PROBABILITY = 0.005  # 0.5% chance of market-wide bust
+MEGA_EVENT_PROBABILITY = 0.0005  # 0.05% chance of massive price swing
+INTER_STOCK_EVENT_PROBABILITY = 0.008  # 0.8% chance of one stock rising while another falls
+SECTOR_EVENT_PROBABILITY = 0.004  # 0.4% chance of sector-wide event
+DIVIDEND_EVENT_PROBABILITY = 0.005  # 0.5% chance of dividend payout
+STOCK_SPLIT_PROBABILITY = 0.002  # 0.2% chance of stock split
+PENNY_STOCK_THRESHOLD = 1.00  # Price below which a stock is considered a penny stock
+PENNY_STOCK_DURATION = timedelta(hours=4)  # Time period to track low prices
+PENNY_STOCK_RECOVERY_PROBABILITY = 0.30  # 15% chance of recovery event
+PENNY_STOCK_RECOVERY_MULTIPLIER = (3.0, 8.0)  # 300-800% price increase
 
-MEGA_EVENT_MULTIPLIER = 10  # 1000% price change
-INTER_STOCK_MULTIPLIER = 1.5  # 50% price change for competing stocks
-BOOM_MULTIPLIER = 1.5  # 50% price increase during a boom
-BUST_MULTIPLIER = 0.5  # 50% price decrease during a bust
+MEGA_EVENT_MULTIPLIER = 15  # Increased to 1500% price change
+INTER_STOCK_MULTIPLIER = 2.0  # Increased to 100% price change for competing stocks
+BOOM_MULTIPLIER = 1.75  # Increased to 75% price increase during a boom
+BUST_MULTIPLIER = 0.4  # Decreased to 60% price decrease during a bust
+SECTOR_EVENT_MULTIPLIER = 1.3  # 30% sector-wide change
+NORMAL_BOOM_MULTIPLIER = (1.20, 1.75)  # 20-75% increase
+NORMAL_BUST_MULTIPLIER = (0.40, 0.70)  # 30-60% decrease
 
+STOCK_SECTORS = {
+    # TECH SECTOR
+    "KEKI": "TECH",
+    "WOJK": "TECH",
+    "PEPE": "TECH",
+
+    # FINANCE SECTOR
+    "BSDL": "FINANCE",
+    "YELO": "FINANCE",
+    "ANCP": "FINANCE",
+
+    # ENTERTAINMENT SECTOR
+    "FUNI": "ENTERTAINMENT",
+    "QUAD": "ENTERTAINMENT",
+    "GRIL": "ENTERTAINMENT",
+
+    # CRYPTO SECTOR
+    "CRYG": "CRYPTO",
+    "REDP": "CRYPTO",
+    "MEME": "CRYPTO"
+}
+
+SECTOR_EVENTS = {
+    "TECH": [
+        "🤖 AI Revolution: Auth-detection algorithms breakthrough!",
+        "💻 Political Compass Browser Extension goes viral!",
+        "🔒 Wojak-based security systems seeing massive adoption!",
+    ],
+    "FINANCE": [
+        "💰 Gold standard discussions impact market!",
+        "📈 LibRight investment strategies gaining popularity!",
+        "🏦 New political compass-based credit scoring system!",
+    ],
+    "ENTERTAINMENT": [
+        "🎮 New Political Compass game tops charts!",
+        "🎬 Quadrant Unity show becomes streaming hit!",
+        "🍖 Centrist grilling content surges in popularity!",
+    ],
+    "CRYPTO": [
+        "⛓️ New BasedCoin blockchain launched!",
+        "🌐 Political compass NFTs trending!",
+        "💱 Compass-token trading volume explodes!"
+    ]
+}
+
+# Mega event multiplier ranges for each type
+MEGA_EVENT_RANGES = {
+    "breakthrough": {
+        "multiplier_range": (3.0, 15.0),  # 300-1500% increase
+        "events": {
+            "TECH": [
+                "🚀 Revolutionary AI Breakthrough! {symbol} creates sentient PCM bot!",
+                "💡 Quantum Political Compass Computing achieved by {symbol}!",
+                "🧠 {symbol} develops Based-AI that can detect cringe with 100% accuracy!"
+            ],
+            "FINANCE": [
+                "💰 {symbol} invents new financial instrument based on based-to-cringe ratio!",
+                "📈 {symbol} algorithm predicts political shifts with 99% accuracy!",
+                "🏦 {symbol} creates revolutionary political alignment credit score!"
+            ],
+            "ENTERTAINMENT": [
+                "🎮 {symbol}'s new PCM metaverse takes over social media!",
+                "🎬 {symbol} launches mind-reading political compass test!",
+                "📱 {symbol}'s AR political compass overlay goes viral!"
+            ],
+            "CRYPTO": [
+                "⛓️ {symbol} solves political alignment verification on blockchain!",
+                "🌐 {symbol} creates unified theory of political cryptocurrency!",
+                "💱 {symbol}'s new consensus mechanism revolutionizes digital politics!"
+            ]
+        }
+    },
+    "scandal": {
+        "multiplier_range": (0.15, 0.40),  # 60-85% decrease
+        "events": {
+            "ALL": [
+                "⚠️ {symbol} CEO caught being unflaired!",
+                "📉 {symbol} executives accused of hiding their true quadrant!",
+                "🚨 Whistleblower reveals {symbol} manipulated based count!",
+                "💥 {symbol} caught using orange left talking points!",
+                "❌ {symbol} accused of radical centrism!"
+            ]
+        }
+    },
+    "acquisition": {
+        "multiplier_range": (1.50, 4.0),  # 50-300% increase
+        "events": {
+            "ALL": [
+                "🤝 Mega Based Corporation announces {symbol} buyout!",
+                "💰 Cross-Compass Unity Fund acquiring {symbol}!",
+                "🌟 Political Unity achieved as {symbol} merges with competitor!",
+                "📈 Radical Centrist Conglomerate absorbing {symbol}!"
+            ]
+        }
+    },
+    "regulatory": {
+        "multiplier_range": (0.50, 0.70),  # 30-50% decrease
+        "events": {
+            "TECH": ["📱 Anti-bias regulations hit {symbol}'s AI algorithms!"],
+            "FINANCE": ["📜 New political disclosure requirements affect {symbol}!"],
+            "ENTERTAINMENT": ["📺 Content neutrality laws impact {symbol}!"],
+            "CRYPTO": ["🏛️ Political token regulations shake {symbol}!"]
+        }
+    },
+    "viral": {
+        "multiplier_range": (2.0, 5.0),  # 200-500% increase
+        "events": {
+            "ALL": [
+                "📱 {symbol} trending after epic political compass moment!",
+                "🌟 Famous PCM personality endorses {symbol}!",
+                "🚀 {symbol}'s based department post breaks internet!",
+                "💫 {symbol} achieves perfect compass unity score!"
+            ]
+        }
+    }
+}
+
+def generate_market_event(symbol, sector):
+    """Generate a market event with appropriate message and multiplier."""
+    event_type = random.choice(list(MEGA_EVENT_RANGES.keys()))
+    event_data = MEGA_EVENT_RANGES[event_type]
+
+    # Get event messages for sector or general
+    messages = event_data["events"].get(sector, event_data["events"].get("ALL", []))
+    if not messages:
+        messages = event_data["events"]["ALL"]
+
+    message = random.choice(messages).format(symbol=symbol)
+    multiplier = random.uniform(*event_data["multiplier_range"])
+
+    return {
+        "type": event_type,
+        "message": message,
+        "multiplier": multiplier
+    }
 
 def generate_stock_price_change(
     current_price,
     stock_volatility,
     stocks_data=None,
     symbol=None,
-    global_event=None  # New parameter to handle global events
+    global_event=None
 ):
     """
     Enhanced stock price change generation with multiple economic event types.
@@ -1680,67 +1985,139 @@ def generate_stock_price_change(
     Returns:
         tuple: (new_price, event_description, competing_stock_info)
     """
+
+    events = []
+    price_multiplier = 1.0
+    split_info = None
+
+    if stocks_data and symbol and current_price < PENNY_STOCK_THRESHOLD:
+        stock_info = stocks_data.get(symbol, {})
+        last_updated = stock_info.get('last_updated')
+
+        if last_updated:
+            # Ensure last_updated has timezone if it doesn't
+            if last_updated.tzinfo is None:
+                last_updated = last_updated.replace(tzinfo=timezone.utc)
+
+            if datetime.now(timezone.utc) - last_updated > PENNY_STOCK_DURATION:
+                if random.random() < PENNY_STOCK_RECOVERY_PROBABILITY:
+                    recovery_multiplier = random.uniform(*PENNY_STOCK_RECOVERY_MULTIPLIER)
+                    price_multiplier *= recovery_multiplier
+                    events.append(f"💫 Penny Stock Surge! {symbol} sees massive recovery!")
+                    return round(current_price * price_multiplier, 2), events, None, None
+
+    # Check for global event
     if global_event:
         if global_event['type'] == 'boom':
-            return round(current_price * BOOM_MULTIPLIER, 2), "📈 Global Economic Boom! All stocks rise in value!", None
+            multiplier = random.uniform(*NORMAL_BOOM_MULTIPLIER)
+            return round(current_price * multiplier, 2), [
+                "🌟 Global Based Event! All stocks mooning!",
+                "📈 Cross-Compass Unity achieved! Markets soaring!",
+                "💫 Political Compass alignment perfect! Stocks surge!"
+            ], None, None
         elif global_event['type'] == 'bust':
-            return round(current_price * BUST_MULTIPLIER, 2), "📉 Global Economic Downturn! All stocks fall in value!", None
+            multiplier = random.uniform(*NORMAL_BUST_MULTIPLIER)
+            return round(current_price * multiplier, 2), [
+                "💥 Global Cringe Event! Markets crashing!",
+                "📉 Compass Unity broken! Stocks plummeting!",
+                "🚨 Political alignment chaos! Markets in shambles!"
+            ], None, None
+
+    #Check for mega event
+    if random.random() < MEGA_EVENT_PROBABILITY:
+        sector = STOCK_SECTORS.get(symbol, "ALL")
+        event = generate_market_event(symbol, sector)
+        events.append(event["message"])
+        price_multiplier *= event["multiplier"]
+        return round(current_price * price_multiplier, 2), events, None, None
+
+    # Check for stock split
+    base_split_prob = 0.002
+    price_factor = max(0, (current_price - 100) / 100)  # Starts at $100
+    split_probability = min(0.20, base_split_prob + (price_factor * 0.02))  # Caps at 20%
+
+    # Check for stock split with dynamic probability
+    if random.random() < split_probability and current_price > 100:
+        # Higher split ratios for higher prices
+        if current_price > 1000:
+            split_ratio = random.choice([4, 5, 6, 8])
+        elif current_price > 500:
+            split_ratio = random.choice([3, 4, 5])
+        else:
+            split_ratio = random.choice([2, 3])
+
+        new_price = current_price / split_ratio
+        events.append(f"📈 Stock Split! {symbol} shares split {split_ratio}:1")
+        price_multiplier *= (1 / split_ratio)
+
+        split_info = {
+            "symbol": symbol,
+            "ratio": split_ratio,
+            "old_price": current_price,
+            "new_price": new_price
+        }
+
+    # Check for dividend payout
+    if random.random() < DIVIDEND_EVENT_PROBABILITY:
+        dividend_yield = stocks_data[symbol].get('dividend_yield', 0.02)
+        dividend_amount = current_price * dividend_yield
+        events.append(f"💰 Dividend Alert! {symbol} pays ${dividend_amount:.2f} per share!")
+        # Small price drop after dividend
+        price_multiplier *= 0.98
+
+    # Check for sector event
+    if random.random() < SECTOR_EVENT_PROBABILITY and stocks_data:
+        current_sector = STOCK_SECTORS.get(symbol)
+        if current_sector:
+            direction = random.choice([-1, 1])
+            sector_multiplier = SECTOR_EVENT_MULTIPLIER ** direction
+            price_multiplier *= sector_multiplier
+            event_type = "boom" if direction > 0 else "bust"
+            events.append(f"🏢 {current_sector} Sector {event_type.title()}! All {current_sector} stocks affected!")
+
+    # Check for inter-stock event
+    if stocks_data and symbol and random.random() < INTER_STOCK_EVENT_PROBABILITY:
+        competing_stocks = [
+            s for s, info in stocks_data.items()
+            if s != symbol and STOCK_SECTORS.get(s) == STOCK_SECTORS.get(symbol)
+        ]
+
+        if competing_stocks:
+            competing_symbol = random.choice(competing_stocks)
+            price_multiplier *= INTER_STOCK_MULTIPLIER
+            events.append(f"🔄 Market Share Shift! {symbol} gains advantage over {competing_symbol}!")
+
+            return (
+                round(current_price * price_multiplier, 2),
+                events,
+                {
+                    'symbol': competing_symbol,
+                    'new_price': round(stocks_data[competing_symbol]['price'] * (1 / INTER_STOCK_MULTIPLIER), 2)
+                },
+                split_info
+            )
 
     # Original economic event logic
     if random.random() < ECONOMIC_EVENT_PROBABILITY:
         event_type = random.choice(['boom', 'bust'])
         if event_type == 'boom':
-            return round(current_price * BOOM_MULTIPLIER, 2), f"Economic Boom affecting {symbol}! Stock price rises quickly!", None
+            multiplier = random.uniform(*NORMAL_BOOM_MULTIPLIER)
+            return round(current_price * multiplier, 2), f"Economic Boom affecting {symbol}! Stock price rises quickly!", None, split_info
         else:
-            return round(current_price * BUST_MULTIPLIER, 2), f"Economic Bust affecting {symbol}! Stock price falls rapidly!", None
-
-    # Mega Event (Ultra-rare massive price swing)
-    mega_event_roll = random.random()
-    if mega_event_roll < MEGA_EVENT_PROBABILITY:
-        direction = random.choice([-1, 1])
-        new_price = current_price * (MEGA_EVENT_MULTIPLIER ** direction)
-        event_desc = "🚨 MEGA EVENT: " + (
-            f"Unprecedented Stock Surge! {symbol} is experiencing an incredibly large price surge!" if direction > 0 else
-            f"Catastrophic Stock Collapse! " f"{symbol} is experiencing an incredibly large price crash!"
-        )
-        return round(new_price, 2), event_desc, None
-
-    # Inter-Stock Event (One stock rises, another falls)
-    if (stocks_data and symbol and
-            random.random() < INTER_STOCK_EVENT_PROBABILITY):
-        # Select a random competing stock
-        competing_stocks = [
-            s for s in stocks_data.keys() if s != symbol
-        ]
-        if competing_stocks:
-            competing_symbol = random.choice(competing_stocks)
-
-            # Rise for current stock
-            new_price = current_price * INTER_STOCK_MULTIPLIER
-
-            # Fall for competing stock
-            competing_current_price = stocks_data[competing_symbol]['price']
-            competing_new_price = competing_current_price * (1 / INTER_STOCK_MULTIPLIER)
-
-            event_desc = f"🔀 Competitors face off: {symbol} Rises, {competing_symbol} Falls!"
-            return (
-                round(new_price, 2),
-                event_desc,
-                {
-                    'symbol': competing_symbol,
-                    'new_price': round(competing_new_price, 2)
-                }
-            )
+            multiplier = random.uniform(*NORMAL_BUST_MULTIPLIER)
+            return round(current_price * multiplier, 2), f"Economic Bust affecting {symbol}! Stock price falls rapidly!", None, split_info
 
     # Normal price change logic (if no special event occurs)
-    volatility = random.uniform(0.01, stock_volatility)
-    price_change = current_price * volatility * random.choice([-1, 1])
-    max_change = current_price * MAX_DAILY_CHANGE
-    price_change = max(-max_change, min(max_change, price_change))
-    new_price = current_price + price_change
+    if not events:
+        base_volatility = random.uniform(0.01, stock_volatility)
+        trend_momentum = random.uniform(0.8, 1.2)  # Add slight trend momentum
+        price_multiplier *= (1 + (base_volatility * random.choice([-1, 1]) * trend_momentum))
 
-    return max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price)), None, None
+        # Apply final price changes with limits
+    new_price = current_price * price_multiplier
+    new_price = max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price))
 
+    return round(new_price, 2), events if events else None, None, split_info
 
 @loader.task(lightbulb.crontrigger("0,30 * * * *"))
 async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
@@ -1752,6 +2129,7 @@ async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
     stocks_dict = existing_stocks["stocks"]
 
     global_event = None
+    split_updates = []
 
     if random.random() < MARKET_WIDE_BOOM_PROBABILITY:
         global_event = {
@@ -1774,7 +2152,7 @@ async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
         stock_volatility = stock_info.get("volatility", 0.15)
 
         # Generate the new price and possible event description
-        new_price, description, competing_stock_info = generate_stock_price_change(
+        new_price, description, competing_stock_info, split_info = generate_stock_price_change(
             current_price,
             stock_volatility,
             stocks_data=stocks_dict,
@@ -1782,12 +2160,22 @@ async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
             global_event=global_event  # Pass global event
         )
 
+        if split_info:
+            split_updates.append(split_info)
+            if description:
+                significant_events.append((symbol, description))
+
         # Prepare updated stock details
         update_details = {
             "name": stock_info["name"],
             "price": round(new_price, 2),
             "volatility": stock_volatility,
-            "last_updated": datetime.now(timezone.utc)
+            "last_updated": datetime.now(timezone.utc),
+            "sector": STOCK_SECTORS.get(symbol),
+            "market_cap": stock_info.get("market_cap", 1000000),
+            "dividend_yield": stock_info.get("dividend_yield", 0.02),
+            "last_split": stock_info.get("last_split"),
+            "description": stock_info.get("description")
         }
 
         # Add event information if an event occurred
@@ -1826,6 +2214,36 @@ async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
 
     updated_stocks = stocks.find_one({})
 
+    if split_updates:
+        # Find all users with stocks
+        users_with_stocks = kek_counter.find({"stocks": {"$exists": True}})
+
+        for user in users_with_stocks:
+            updated_portfolio = []
+            portfolio_modified = False
+
+            for stock in user.get("stocks", []):
+                # Check if this stock had a split
+                split_event = next((s for s in split_updates if s["symbol"] == stock["symbol"]), None)
+
+                if split_event:
+                    # Multiply quantity by split ratio, adjust purchase price
+                    updated_portfolio.append({
+                        "symbol": stock["symbol"],
+                        "quantity": stock["quantity"] * split_event["ratio"],
+                        "purchase_price": stock["purchase_price"] / split_event["ratio"],
+                        "purchase_date": stock["purchase_date"]
+                    })
+                    portfolio_modified = True
+                else:
+                    updated_portfolio.append(stock)
+
+            if portfolio_modified:
+                kek_counter.update_one(
+                    {"_id": user["_id"]},
+                    {"$set": {"stocks": updated_portfolio}}
+                )
+
     # Save historical data
     save_stock_price_history(updated_stocks)
 
@@ -1838,6 +2256,7 @@ async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
                     channel,
                     content=global_event['message']
                 )
+                continue
 
             # Then announce specific stock events
             for _, event_description in significant_events:
@@ -1846,62 +2265,153 @@ async def update_stock_prices(client: lightbulb.GatewayEnabledClient):
                     content=f"🔔 Economic Event: {event_description}"
                 )
 
-async def generate_stock_price_graph():
+
+def format_portfolio_details(portfolio_items, stock_prices, sector=None):
     """
-    Generate a graph of stock prices from historical data.
+    Format portfolio details with pagination to stay within Discord limits.
+
+    Args:
+        portfolio_items (list): List of stock portfolio items
+        stock_prices (dict): Current stock prices data
+        sector (str, optional): Filter by sector
 
     Returns:
-        hikari.Bytes: Graph image ready to be sent to Discord
+        tuple: (list of portfolio detail chunks, total portfolio value)
     """
-    # Retrieve historical stock price data for the last 30 days
-    historical_data = list(stock_history.find().sort("timestamp", 1))
+    portfolio_chunks = []
+    current_chunk = ""
+    portfolio_value = 0
 
-    # Create the plot
-    plt.figure(figsize=(12, 6))
-    plt.title("Stock Prices Over Time", fontsize=15)
-    plt.xlabel("Timestamp", fontsize=12)
-    plt.ylabel("Price ($)", fontsize=12)
-    plt.grid(True, linestyle='--', alpha=0.7)
+    for stock in portfolio_items:
+        if sector and STOCK_SECTORS.get(stock["symbol"]) != sector:
+            continue
 
-    # Track stocks to plot
-    stocks_to_plot = {}
+        current_stock = stock_prices.get(stock["symbol"], {})
+        current_price = current_stock.get("price", stock["purchase_price"])
+        total_value = current_price * stock["quantity"]
+        portfolio_value += total_value
 
-    # Collect and plot data for each stock
-    for entry in historical_data:
-        for symbol, stock_info in entry.get('stocks', {}).items():
-            if symbol not in stocks_to_plot:
-                stocks_to_plot[symbol] = {
-                    'timestamps': [],
-                    'prices': []
-                }
+        # Calculate profit/loss
+        profit_loss = (current_price - stock["purchase_price"]) * stock["quantity"]
+        profit_loss_color = "🟢" if profit_loss > 0 else "🔴" if profit_loss < 0 else "➖"
 
-            stocks_to_plot[symbol]['timestamps'].append(entry['timestamp'])
-            stocks_to_plot[symbol]['prices'].append(stock_info['price'])
-
-    # Plot each stock with a different color
-    colors = ['blue', 'green', 'red', 'purple', 'orange']
-    for i, (symbol, data) in enumerate(stocks_to_plot.items()):
-        plt.plot(
-            data['timestamps'],
-            data['prices'],
-            label=symbol,
-            color=colors[i % len(colors)],
-            marker='o',
-            markersize=4
+        stock_detail = (
+            f"{stock['symbol']} - {stock['quantity']} shares\n"
+            f"Sector: {STOCK_SECTORS.get(stock['symbol'], 'N/A')}\n"
+            f"Purchase: ${stock['purchase_price']:.2f} → Current: ${current_price:.2f}\n"
+            f"Total: ${total_value:.2f} ({profit_loss_color} ${profit_loss:.2f})\n\n"
         )
 
-    plt.legend()
-    plt.xticks(rotation=45)
-    plt.tight_layout()
+        # Check if adding this stock would exceed Discord's limit
+        if len(current_chunk + stock_detail) > 1000:  # Using 1000 to leave some margin
+            portfolio_chunks.append(current_chunk)
+            current_chunk = stock_detail
+        else:
+            current_chunk += stock_detail
 
-    # Save plot to a bytes buffer
-    buffer = io.BytesIO()
-    plt.savefig(buffer, format='png')
-    buffer.seek(0)
-    plt.close()
+    if current_chunk:
+        portfolio_chunks.append(current_chunk)
 
-    # Convert to hikari.Bytes for Discord
-    return hikari.Bytes(buffer, 'stock_prices.png')
+    return portfolio_chunks, portfolio_value
+
+
+def format_market_overview(stocks_data, symbol=None, sector=None):
+    """
+    Format market overview with sector grouping and pagination.
+
+    Args:
+        stocks_data (dict): Current stock market data
+        symbol (str, optional): Filter by symbol
+        sector (str, optional): Filter by sector
+
+    Returns:
+        list: List of market overview chunks
+    """
+    # Group stocks by sector
+    sector_groups = {}
+    for stock_symbol, details in stocks_data.items():
+        if (symbol and stock_symbol != symbol) or \
+                (sector and STOCK_SECTORS.get(stock_symbol) != sector):
+            continue
+
+        stock_sector = STOCK_SECTORS.get(stock_symbol, 'Other')
+        if stock_sector not in sector_groups:
+            sector_groups[stock_sector] = []
+
+        sector_groups[stock_sector].append((stock_symbol, details))
+
+    # Format each sector's stocks
+    overview_chunks = []
+    current_chunk = ""
+    current_sector = None
+
+    for sector_name in sorted(sector_groups.keys()):
+        sector_stocks = sector_groups[sector_name]
+        sector_content = f"__**{sector_name} SECTOR**__\n"
+
+        # Start a new chunk if this is a new sector
+        if current_sector != sector_name:
+            if current_chunk:
+                overview_chunks.append(current_chunk)
+            current_chunk = sector_content
+            current_sector = sector_name
+
+        for stock_symbol, details in sorted(sector_stocks):
+            stock_info = (
+                f"**{stock_symbol}** - {details['name']}\n"
+                f"Price: ${details['price']:.2f} | Vol: {details['volatility'] * 100:.1f}% | "
+                f"Div: {details.get('dividend_yield', 0.02) * 100:.1f}%\n"
+                f"{details.get('description', '')}\n\n"
+            )
+
+            # Check if adding this stock would exceed Discord's limit
+            if len(current_chunk + stock_info) > 1024:
+                overview_chunks.append(current_chunk)
+                current_chunk = sector_content + stock_info  # Start new chunk with sector header
+            else:
+                current_chunk += stock_info
+
+    if current_chunk:
+        overview_chunks.append(current_chunk)
+
+    return overview_chunks
+
+STOCK_CHOICES = [
+    lightbulb.Choice("KEKI", "KEKI"),
+    lightbulb.Choice("WOJK", "WOJK"),
+    lightbulb.Choice("PEPE", "PEPE"),
+    lightbulb.Choice("BSDL", "BSDL"),
+    lightbulb.Choice("YELO", "YELO"),
+    lightbulb.Choice("ANCP", "ANCP"),
+    lightbulb.Choice("FUNI", "FUNI"),
+    lightbulb.Choice("QUAD", "QUAD"),
+    lightbulb.Choice("GRIL", "GRIL"),
+    lightbulb.Choice("CRYG", "CRYG"),
+    lightbulb.Choice("REDP", "REDP"),
+    lightbulb.Choice("MEME", "MEME")
+]
+
+SECTOR_CHOICES = [
+    lightbulb.Choice("TECH", "TECH"),
+    lightbulb.Choice("FINANCE", "FINANCE"),
+    lightbulb.Choice("ENTERTAINMENT", "ENTERTAINMENT"),
+    lightbulb.Choice("CRYPTO", "CRYPTO")
+]
+
+SYMBOLS = [
+    "KEKI",
+    "WOJK",
+    "PEPE",
+    "BSDL",
+    "YELO",
+    "ANCP",
+    "FUNI",
+    "QUAD",
+    "GRIL",
+    "CRYG",
+    "REDP",
+    "MEME"
+]
 
 @loader.command
 class BuyStock(
@@ -1909,13 +2419,8 @@ class BuyStock(
     name="buy-stock",
     description="Buy stocks from the market"
 ):
-    symbol = lightbulb.string("symbol", "Stock symbol to buy", choices=[
-        lightbulb.Choice("KEKI", "KEKI"),
-        lightbulb.Choice("BSDL", "BSDL"),
-        lightbulb.Choice("FUNI", "FUNI"),
-        lightbulb.Choice("CRYG", "CRYG")
-    ])
-    quantity = lightbulb.number("quantity", "Number of stocks to buy", min_value=1)
+    symbol = lightbulb.string("symbol", "Stock symbol to buy", choices=STOCK_CHOICES)
+    quantity = lightbulb.number("quantity", "Number of stocks to buy. Max limit is 100k.", min_value=1, max_value=100000)
 
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context):
@@ -1936,26 +2441,49 @@ class BuyStock(
                 flags=hikari.MessageFlag.EPHEMERAL)
             return
 
+        # Look for existing stock with same purchase price
+        user_stocks = user_data.get("stocks", [])
+        matching_stock = None
+        new_stocks_list = []
+        stock_merged = False
+
+        for stock in user_stocks:
+            if (stock["symbol"] == self.symbol and
+                abs(stock["purchase_price"] - current_stock["price"]) < 0.01):  # Using small threshold for float comparison
+                # Merge with existing stock
+                new_stocks_list.append({
+                    "symbol": stock["symbol"],
+                    "quantity": stock["quantity"] + self.quantity,
+                    "purchase_price": stock["purchase_price"],
+                    "purchase_date": stock["purchase_date"]
+                })
+                stock_merged = True
+            else:
+                new_stocks_list.append(stock)
+
+        # If no matching stock found, add as new entry
+        if not stock_merged:
+            new_stocks_list.append({
+                "symbol": self.symbol,
+                "quantity": self.quantity,
+                "purchase_price": current_stock["price"],
+                "purchase_date": datetime.now(timezone.utc)
+            })
+
         # Update user's stocks and basedbucks
         kek_counter.update_one(
             {"user_id": str(ctx.member.id)},
             {
                 "$inc": {"basedbucks": -total_cost},
-                "$push": {
-                    "stocks": {
-                        "symbol": self.symbol,
-                        "quantity": self.quantity,
-                        "purchase_price": current_stock["price"],
-                        "purchase_date": datetime.now(timezone.utc)
-                    }
-                }
+                "$set": {"stocks": new_stocks_list}
             },
             upsert=True
         )
 
+        merge_message = " (Merged with existing shares)" if stock_merged else ""
         await ctx.respond(
             f"Bought {self.quantity} stocks of {current_stock['name']} at ${current_stock['price']:.2f} each. "
-            f"Total cost: ${total_cost:.2f} Basedbucks.")
+            f"Total cost: ${total_cost:.2f} Basedbucks{merge_message}")
 
 @loader.command
 class SellStock(
@@ -1963,12 +2491,7 @@ class SellStock(
     name="sell-stock",
     description="Sell stocks from your portfolio"
 ):
-    symbol = lightbulb.string("symbol", "Stock symbol to sell", choices=[
-        lightbulb.Choice("KEKI", "KEKI"),
-        lightbulb.Choice("BSDL", "BSDL"),
-        lightbulb.Choice("FUNI", "FUNI"),
-        lightbulb.Choice("CRYG", "CRYG")
-    ])
+    symbol = lightbulb.string("symbol", "Stock symbol to sell", choices=STOCK_CHOICES)
     quantity = lightbulb.number("quantity", "Number of stocks to sell", min_value=1)
 
     @lightbulb.invoke
@@ -2047,75 +2570,547 @@ class CheckStocks(
     name="check-stocks",
     description="Check current stock prices and your portfolio"
 ):
+    days = lightbulb.integer("days", "Number of days to view (default: 30, max: 30)",
+                             default=30,
+                             min_value=1,
+                             max_value=30
+                             )
+    symbol = lightbulb.string("symbol", "Stock symbol to view specifically. Leave empty for all stocks.", default=None, choices=STOCK_CHOICES)
+
+    sector = lightbulb.string("sector", "Stock sector to view specifically. Leave empty for all sectors.", default=None, choices=SECTOR_CHOICES)
+
+    def validate_symbol_sector(self, symbol, sector):
+        """
+        Validate that the symbol and sector combination is valid.
+        Returns a tuple of (is_valid, error_message)
+        """
+        if symbol and sector:
+            stock_sector = STOCK_SECTORS.get(symbol)
+            if stock_sector != sector:
+                return False, f"❌ Error: Stock {symbol} belongs to {stock_sector} sector, not {sector} sector. Please choose matching symbol and sector or use them separately."
+        return True, None
+
+    def find_peaks_troughs(self, prices, min_distance=2):
+        """
+        Find peaks and troughs in price data.
+
+        Args:
+            prices (list): List of price values
+            min_distance (int): Minimum distance between peaks/troughs
+
+        Returns:
+            tuple: Lists of peak and trough indices
+        """
+        peaks = []
+        troughs = []
+
+        if len(prices) < 3:
+            return peaks, troughs
+
+        for i in range(1, len(prices) - 1):
+
+            is_peak = prices[i-1] < prices[i] and prices[i] > prices[i+1]
+            is_trough = prices[i-1] > prices[i] and prices[i] < prices[i+1]
+
+            if is_peak or is_trough:
+                if peaks or troughs:
+                    last_point = max(peaks[-1] if peaks else 0, troughs[-1] if troughs else 0)
+                    if i - last_point < min_distance:
+                        continue
+
+                if is_peak:
+                    peaks.append(i)
+                else:
+                    troughs.append(i)
+
+        # Check first and last points
+        if len(prices) > 1:
+            if prices[0] > prices[1]:
+                peaks.insert(0, 0)
+            elif prices[0] < prices[1]:
+                troughs.insert(0, 0)
+
+            if prices[-1] > prices[-2]:
+                peaks.append(len(prices) - 1)
+            elif prices[-1] < prices[-2]:
+                troughs.append(len(prices) - 1)
+
+        return peaks, troughs
+
+    async def generate_stock_price_graph(self):
+        """
+        Generate a graph of stock prices from historical data.
+
+        Returns:
+            hikari.Bytes: Graph image ready to be sent to Discord
+        """
+        symbol = self.symbol
+        sector = self.sector
+        days = self.days
+
+        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+        # Retrieve historical stock price data for the last 30 days
+        historical_data = list(stock_history.find(
+            {"timestamp": {"$gte": start_date}},
+        ).sort("timestamp", 1))
+
+        fig = plt.figure(figsize=(12, 6))
+        ax = fig.add_subplot(111)
+
+        title = f"Stock Prices Over Past {days} Days"
+        if sector:
+            title = f"{sector} Sector - {title}"
+        plt.title(title, fontsize=15, pad=20)
+        plt.xlabel("Timestamp", fontsize=12)
+        plt.ylabel("Price ($)", fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)
+
+        # Track stocks to plot
+        stocks_to_plot = {}
+
+        # Collect and plot data for each stock
+        for entry in historical_data:
+
+            for stock_symbol, stock_info in entry.get('stocks', {}).items():
+
+                if symbol and stock_symbol != symbol and symbol is not None:
+                    continue
+
+                if sector and STOCK_SECTORS.get(stock_symbol) != sector and sector is not None:
+                    continue
+
+                if stock_symbol not in stocks_to_plot:
+                    stocks_to_plot[stock_symbol] = {
+                        'timestamps': [],
+                        'prices': []
+                    }
+
+                stocks_to_plot[stock_symbol]['timestamps'].append(entry['timestamp'])
+                stocks_to_plot[stock_symbol]['prices'].append(stock_info['price'])
+
+        # Plot each stock with a different color
+        colors = ['blue', 'green', 'red', 'purple', 'orange', 'cyan', 'magenta', 'yellow', 'brown', 'pink']
+
+        for i, (stock_symbol, data) in enumerate(stocks_to_plot.items()):
+
+            plt.plot(
+                data['timestamps'],
+                data['prices'],
+                label=f"{stock_symbol}",
+                color=colors[i % len(colors)],
+                linewidth=2,
+                zorder=1
+            )
+
+            min_distance = max(2, len(data['prices']) // 200)
+            peaks, troughs = self.find_peaks_troughs(data['prices'], min_distance)
+
+            plt.scatter(
+                [data['timestamps'][i] for i in peaks],
+                [data['prices'][i] for i in peaks],
+                color='green',
+                edgecolors=colors[i % len(colors)],
+                marker='^',
+                s=50,
+                zorder=2
+            )
+
+            plt.scatter(
+                [data['timestamps'][i] for i in troughs],
+                [data['prices'][i] for i in troughs],
+                color='red',
+                edgecolors=colors[i % len(colors)],
+                marker='v',
+                s=50,
+                zorder=2
+            )
+
+            if peaks:
+                highest_peak = max(peaks, key=lambda x: data['prices'][x])
+                ax.annotate(
+                    f'${data["prices"][highest_peak]:.2f}',
+                    (data['timestamps'][highest_peak], data['prices'][highest_peak]),
+                    xytext=(0, 10),
+                    textcoords='offset points',
+                    ha='center',
+                    fontsize=8,
+                    bbox=dict(facecolor='white', edgecolor=colors[i % len(colors)], alpha=0.7, pad=1)
+                )
+
+            if troughs:
+                lowest_trough = min(troughs, key=lambda x: data['prices'][x])
+                ax.annotate(
+                    f'${data["prices"][lowest_trough]:.2f}',
+                    (data['timestamps'][lowest_trough], data['prices'][lowest_trough]),
+                    xytext=(0, -10),
+                    textcoords='offset points',
+                    ha='center',
+                    fontsize=8,
+                    bbox=dict(facecolor='white', edgecolor=colors[i % len(colors)], alpha=0.7, pad=1)
+                )
+
+        plt.gcf().autofmt_xdate()
+
+        if len(stocks_to_plot) > 1:
+            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        else:
+            ax.legend(loc='best', fontsize='10')
+
+        plt.tight_layout()
+
+        # Save plot to a bytes buffer
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format='png', bbox_inches='tight', dpi=100)
+        buffer.seek(0)
+        plt.close()
+
+        # Convert to hikari.Bytes for Discord
+        return hikari.Bytes(buffer, 'stock_prices.png')
+
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context):
-
         await ctx.defer()
-        # Retrieve current stock information
+
+        symbol = self.symbol
+        sector = self.sector
+
+        is_valid, error_message = self.validate_symbol_sector(symbol, sector)
+        if not is_valid:
+            await ctx.respond(error_message, flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
         stock_data = stocks.find_one({})
         user_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
 
-        # Create embedded message for stocks
-        embed = hikari.Embed(title="Stock Market Overview", color=hikari.Color.from_hex_code("#2ecc71"))
+        title = "Stock Market Overview"
+        if sector:
+            title = f"{sector} Sector Overview"
+        elif symbol:
+            title = f"Stock Overview: {symbol}"
 
-        # Add current stock prices
+        embed = hikari.Embed(
+            title=title,
+            color=hikari.Color.from_hex_code("#2ecc71")
+        )
+
+        # Add market overview with sector grouping
         if stock_data and "stocks" in stock_data:
-            for symbol, details in stock_data["stocks"].items():
+            overview_chunks = format_market_overview(
+                stock_data["stocks"],
+                symbol,
+                sector
+            )
+
+            for i, chunk in enumerate(overview_chunks, 1):
+                field_name = "Market Overview"
+                if len(overview_chunks) > 1:
+                    field_name += f" (Part {i}/{len(overview_chunks)})"
+                embed.add_field(name=field_name, value=chunk, inline=False)
+
+        # Add portfolio with pagination
+        if user_data and "stocks" in user_data:
+            portfolio_chunks, total_value = format_portfolio_details(
+                user_data["stocks"],
+                stock_data.get("stocks", {}),
+                sector
+            )
+
+            for i, chunk in enumerate(portfolio_chunks, 1):
+                field_name = f"Your Portfolio{' (' + sector + ' Sector)' if sector else ''}"
+                if len(portfolio_chunks) > 1:
+                    field_name += f" (Part {i}/{len(portfolio_chunks)})"
+                embed.add_field(name=field_name, value=chunk, inline=False)
+
+            if portfolio_chunks:
                 embed.add_field(
-                    name=f"{symbol} - {details['name']}",
-                    value=(
-                        f"Current Price: ${details['price']:.2f}\n"
-                        f"Volatility: {details['volatility'] * 100:.1f}%"
-                    ),
+                    name=f"Total Portfolio Value{' (' + sector + ' Sector)' if sector else ''}",
+                    value=f"${total_value:.2f}",
                     inline=False
                 )
 
-        # Add user's portfolio
-        if user_data and "stocks" in user_data:
-            portfolio_value = 0
-            portfolio_details = ""
-
-            stock_prices = stock_data.get("stocks", {}) if stock_data else {}
-
-            for stock in user_data["stocks"]:
-                current_stock = stock_prices.get(stock["symbol"], {})
-                current_price = current_stock.get("price", stock["purchase_price"])
-                total_value = current_price * stock["quantity"]
-                portfolio_value += total_value
-
-                # Calculate profit/loss
-                profit_loss = (current_price - stock["purchase_price"]) * stock["quantity"]
-                profit_loss_color = "🟢" if profit_loss > 0 else "🔴" if profit_loss < 0 else "➖"
-
-                portfolio_details += (
-                    f"{stock['symbol']} - {stock['quantity']} shares\n"
-                    f"Purchase Price: ${stock['purchase_price']:.2f}\n"
-                    f"Current Price: ${current_price:.2f}\n"
-                    f"Total Value: ${total_value:.2f}\n"
-                    f"Profit/Loss: {profit_loss_color} ${profit_loss:.2f}\n\n"
-                )
-
-            embed.add_field(
-                name="Your Portfolio",
-                value=portfolio_details or "No stocks owned",
-                inline=False
-            )
-            embed.add_field(
-                name="Total Portfolio Value",
-                value=f"${portfolio_value:.2f}",
-                inline=False
-            )
-
-        # Generate stock price graph
+        # Generate and add stock price graph
         try:
-            stock_graph = await generate_stock_price_graph()
-            resp = await ctx.respond(
-                embed=embed,
-                attachment=stock_graph
-            )
+            stock_graph = await self.generate_stock_price_graph()
+            await ctx.respond(embed=embed, attachment=stock_graph)
         except Exception as e:
-            # Use edit_initial_response instead of responding again
-            await ctx.edit_response(
-                resp,
-                content=f"Could not generate stock price graph: {str(e)}"
+            await ctx.respond(
+                f"Error: Could not process request. The portfolio might be too large to display.",
+                flags=hikari.MessageFlag.EPHEMERAL
             )
+
+#@loader.command
+#class CheckStocks(
+#    lightbulb.SlashCommand,
+#    name="check-stocks",
+#    description="Check current stock prices and your portfolio by sector"
+#):
+#    sector = lightbulb.string("sector", "Sector to view", choices=[
+#        lightbulb.Choice("ALL", "View all sectors"),
+#        lightbulb.Choice("TECH", "Technology sector"),
+#        lightbulb.Choice("FINANCE", "Financial sector"),
+#        lightbulb.Choice("ENTERTAINMENT", "Entertainment sector"),
+#        lightbulb.Choice("CRYPTO", "Cryptocurrency sector")
+#    ])
+#    days = lightbulb.integer("days", "Number of days to view (default: 30, max: 30)",
+#                             default=30,
+#                             min_value=1,
+#                             max_value=30
+#                             )
+#
+#    def find_peaks_troughs(self, prices, min_distance=2):
+#        """
+#        Find peaks and troughs in price data.
+#
+#        Args:
+#            prices (list): List of price values
+#            min_distance (int): Minimum distance between peaks/troughs
+#
+#        Returns:
+#            tuple: Lists of peak and trough indices
+#        """
+#        peaks = []
+#        troughs = []
+#
+#        if len(prices) < 3:
+#            return peaks, troughs
+#
+#        for i in range(1, len(prices) - 1):
+#            is_peak = prices[i-1] < prices[i] and prices[i] > prices[i+1]
+#            is_trough = prices[i-1] > prices[i] and prices[i] < prices[i+1]
+#
+#            if is_peak or is_trough:
+#                if peaks or troughs:
+#                    last_point = max(peaks[-1] if peaks else 0, troughs[-1] if troughs else 0)
+#                    if i - last_point < min_distance:
+#                        continue
+#
+#                if is_peak:
+#                    peaks.append(i)
+#                else:
+#                    troughs.append(i)
+#
+#        # Check first and last points
+#        if len(prices) > 1:
+#            if prices[0] > prices[1]:
+#                peaks.insert(0, 0)
+#            elif prices[0] < prices[1]:
+#                troughs.insert(0, 0)
+#
+#            if prices[-1] > prices[-2]:
+#                peaks.append(len(prices) - 1)
+#            elif prices[-1] < prices[-2]:
+#                troughs.append(len(prices) - 1)
+#
+#        return peaks, troughs
+#
+#    async def generate_stock_price_graph(self):
+#        """
+#        Generate a graph of stock prices from historical data.
+#
+#        Returns:
+#            hikari.Bytes: Graph image ready to be sent to Discord
+#        """
+#        sector = self.sector
+#        days = self.days
+#
+#        start_date = datetime.now(timezone.utc) - timedelta(days=days)
+#
+#        # Retrieve historical stock price data for the last 30 days
+#        historical_data = list(stock_history.find(
+#            {"timestamp": {"$gte": start_date}},
+#        ).sort("timestamp", 1))
+#
+#        fig = plt.figure(figsize=(12, 6))
+#        ax = fig.add_subplot(111)
+#
+#        sector_title = "All Sectors" if sector == "ALL" else f"{sector} Sector"
+#        plt.title(f"Stock Prices - {sector_title} (Past {days} Days)", fontsize=15, pad=20)
+#        plt.xlabel("Timestamp", fontsize=12)
+#        plt.ylabel("Price ($)", fontsize=12)
+#        plt.grid(True, linestyle='--', alpha=0.7)
+#
+#        # Track stocks to plot
+#        stocks_to_plot = {}
+#
+#        # Collect and plot data for each stock
+#        for entry in historical_data:
+#            for stock_symbol, stock_info in entry.get('stocks', {}).items():
+#                stock_sector = STOCK_SECTORS.get(stock_symbol)
+#                if sector != "ALL" and stock_sector != sector:
+#                    continue
+#
+#                if stock_symbol not in stocks_to_plot:
+#                    stocks_to_plot[stock_symbol] = {
+#                        'timestamps': [],
+#                        'prices': []
+#                    }
+#
+#                stocks_to_plot[stock_symbol]['timestamps'].append(entry['timestamp'])
+#                stocks_to_plot[stock_symbol]['prices'].append(stock_info['price'])
+#
+#        # Plot each stock with a different color
+#        colors = ['blue', 'green', 'red', 'purple', 'orange', 'cyan', 'magenta', 'yellow', 'brown', 'pink']
+#
+#        for i, (stock_symbol, data) in enumerate(stocks_to_plot.items()):
+#            plt.plot(
+#                data['timestamps'],
+#                data['prices'],
+#                label=f"{stock_symbol}",
+#                color=colors[i % len(colors)],
+#                linewidth=2,
+#                zorder=1
+#            )
+#
+#            min_distance = max(2, len(data['prices']) // 200)
+#            peaks, troughs = self.find_peaks_troughs(data['prices'], min_distance)
+#
+#            plt.scatter(
+#                [data['timestamps'][i] for i in peaks],
+#                [data['prices'][i] for i in peaks],
+#                color='green',
+#                edgecolors=colors[i % len(colors)],
+#                marker='^',
+#                s=50,
+#                zorder=2
+#            )
+#
+#            plt.scatter(
+#                [data['timestamps'][i] for i in troughs],
+#                [data['prices'][i] for i in troughs],
+#                color='red',
+#                edgecolors=colors[i % len(colors)],
+#                marker='v',
+#                s=50,
+#                zorder=2
+#            )
+#
+#            if peaks:
+#                highest_peak = max(peaks, key=lambda x: data['prices'][x])
+#                ax.annotate(
+#                    f'${data["prices"][highest_peak]:.2f}',
+#                    (data['timestamps'][highest_peak], data['prices'][highest_peak]),
+#                    xytext=(0, 10),
+#                    textcoords='offset points',
+#                    ha='center',
+#                    fontsize=8,
+#                    bbox=dict(facecolor='white', edgecolor=colors[i % len(colors)], alpha=0.7, pad=1)
+#                )
+#
+#            if troughs:
+#                lowest_trough = min(troughs, key=lambda x: data['prices'][x])
+#                ax.annotate(
+#                    f'${data["prices"][lowest_trough]:.2f}',
+#                    (data['timestamps'][lowest_trough], data['prices'][lowest_trough]),
+#                    xytext=(0, -10),
+#                    textcoords='offset points',
+#                    ha='center',
+#                    fontsize=8,
+#                    bbox=dict(facecolor='white', edgecolor=colors[i % len(colors)], alpha=0.7, pad=1)
+#                )
+#
+#        plt.gcf().autofmt_xdate()
+#
+#        if len(stocks_to_plot) > 1:
+#            ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+#        else:
+#            ax.legend(loc='best', fontsize='10')
+#
+#        plt.tight_layout()
+#
+#        # Save plot to a bytes buffer
+#        buffer = io.BytesIO()
+#        plt.savefig(buffer, format='png', bbox_inches='tight', dpi=100)
+#        buffer.seek(0)
+#        plt.close()
+#
+#        # Convert to hikari.Bytes for Discord
+#        return hikari.Bytes(buffer, 'stock_prices.png')
+#
+#    @lightbulb.invoke
+#    async def invoke(self, ctx: lightbulb.Context):
+#        await ctx.defer()
+#
+#        sector = self.sector
+#
+#        # Retrieve current stock information
+#        stock_data = stocks.find_one({})
+#        user_data = kek_counter.find_one({"user_id": str(ctx.member.id)})
+#
+#        # Create embedded message for stocks
+#        sector_title = "All Sectors" if sector == "ALL" else f"{sector} Sector"
+#        embed = hikari.Embed(
+#            title=f"Stock Market Overview - {sector_title}",
+#            color=hikari.Color.from_hex_code("#2ecc71")
+#        )
+#
+#        # Add current stock prices
+#        if stock_data and "stocks" in stock_data:
+#            for stock_symbol, details in stock_data["stocks"].items():
+#                stock_sector = STOCK_SECTORS.get(stock_symbol)
+#                if sector != "ALL" and stock_sector != sector:
+#                    continue
+#
+#                embed.add_field(
+#                    name=f"{stock_symbol} - {details['name']}",
+#                    value=(
+#                        f"Current Price: ${details['price']:.2f}\n"
+#                        f"Volatility: {details['volatility'] * 100:.1f}%\n"
+#                        f"Sector: {stock_sector}"
+#                    ),
+#                    inline=False
+#                )
+#
+#        # Add user's portfolio for selected sector
+#        if user_data and "stocks" in user_data:
+#            portfolio_value = 0
+#            portfolio_details = ""
+#
+#            stock_prices = stock_data.get("stocks", {}) if stock_data else {}
+#
+#            for stock in user_data["stocks"]:
+#                stock_sector = STOCK_SECTORS.get(stock["symbol"])
+#                if sector != "ALL" and stock_sector != sector:
+#                    continue
+#
+#                current_stock = stock_prices.get(stock["symbol"], {})
+#                current_price = current_stock.get("price", stock["purchase_price"])
+#                total_value = current_price * stock["quantity"]
+#                portfolio_value += total_value
+#
+#                # Calculate profit/loss
+#                profit_loss = (current_price - stock["purchase_price"]) * stock["quantity"]
+#                profit_loss_color = "🟢" if profit_loss > 0 else "🔴" if profit_loss < 0 else "➖"
+#
+#                portfolio_details += (
+#                    f"{stock['symbol']} - {stock['quantity']} shares\n"
+#                    f"Purchase Price: ${stock['purchase_price']:.2f}\n"
+#                    f"Current Price: ${current_price:.2f}\n"
+#                    f"Total Value: ${total_value:.2f}\n"
+#                    f"Profit/Loss: {profit_loss_color} ${profit_loss:.2f}\n\n"
+#                )
+#
+#            if portfolio_details:
+#                embed.add_field(
+#                    name=f"Your Portfolio - {sector_title}",
+#                    value=portfolio_details,
+#                    inline=False
+#                )
+#                embed.add_field(
+#                    name=f"Total Portfolio Value ({sector_title})",
+#                    value=f"${portfolio_value:.2f}",
+#                    inline=False
+#                )
+#
+#        # Generate stock price graph
+#        try:
+#            stock_graph = await self.generate_stock_price_graph()
+#            resp = await ctx.respond(
+#                embed=embed,
+#                attachment=stock_graph
+#            )
+#        except Exception as e:
+#            await ctx.respond(
+#                f"Could not generate stock price graph: {str(e)}",
+#                flags=hikari.MessageFlag.EPHEMERAL
+#            )
