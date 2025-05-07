@@ -1,9 +1,10 @@
 import os
+from datetime import datetime, timezone
 
 from dotenv import main
 from pyexpat.errors import messages
 import extensions.gambling
-from database import collection, stocks
+from database import collection, stocks, kek_counter
 import asyncio
 from typing import List, Dict, Any, Sequence
 
@@ -35,7 +36,7 @@ CHANNEL_IDS = [
 async def on_starting(_: hikari.StartingEvent) -> None:
     # Load any extensions
     print("Loading extensions...")
-    await client.load_extensions("extensions.data", "extensions.gambling", "extensions.word_cloud", "extensions.meme")
+    await client.load_extensions("extensions.data", "extensions.gambling", "extensions.word_cloud", "extensions.meme", "extensions.word_game")
     extensions.gambling.initialize_stocks(stocks)
     extensions.gambling.check_stock_initialization(stocks)
     # Start the bot - make sure commands are synced properly
@@ -95,6 +96,77 @@ async def collect_messages() -> None:
 
             if message_data:
                 collection.insert_many(message_data)
+
+@bot.listen(hikari.GuildMessageCreateEvent)
+async def message_reward(event: hikari.GuildMessageCreateEvent) -> None:
+
+    if event.is_bot or not event.content:
+        return
+
+    MIN_WORDS = 3
+    MIN_CHARS = 10
+    COOLDOWN = 30
+    REWARD_AMOUNT = 25
+    MESSAGE_THRESHOLD = 10
+
+    user_id = str(event.author_id)
+    content = event.content.strip()
+
+    is_valid = all([
+        len(content) >= MIN_CHARS,
+        len(content.split()) >= MIN_WORDS,
+        not any(url in content for url in ["http://", "https://"]),
+        not content.startswith(("/", "!"))
+    ])
+
+    if not is_valid:
+        return
+
+    user_data = kek_counter.find_one({"user_id": user_id}) or {}
+
+    now = datetime.now(timezone.utc)
+
+    for user in kek_counter.find({"last_valid_message": {"$exists": True}}):
+        naive_dt = user["last_valid_message"]
+        aware_dt = naive_dt.replace(tzinfo=timezone.utc)
+        kek_counter.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"last_valid_message": aware_dt}}
+        )
+
+    last_message = user_data.get("last_valid_message")
+    if last_message:
+        # Convert naive datetime to aware if needed
+        if last_message.tzinfo is None:
+            last_message = last_message.replace(tzinfo=timezone.utc)
+
+        # Calculate time difference properly
+        time_diff = (now - last_message).total_seconds()
+        if time_diff < COOLDOWN:
+            return
+
+    kek_counter.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "valid_message_count": user_data.get("valid_message_count", 0) + 1,
+            "last_valid_message": now
+        }},
+        upsert=True
+    )
+
+    # Check reward threshold
+    new_count = user_data.get("valid_message_count", 0) + 1
+    if new_count % MESSAGE_THRESHOLD == 0:
+        kek_counter.update_one(
+            {"user_id": user_id},
+            {"$inc": {"basedbucks": REWARD_AMOUNT},
+             "$set": {"valid_message_count": 0}
+             }
+        )
+
+        print(f"{event.author.display_name} ({event.author.username}) got {REWARD_AMOUNT} basedbucks for commentary")
+
+        await event.message.add_reaction("💰")
 
 @client.register()
 class WordsInMyMouth(

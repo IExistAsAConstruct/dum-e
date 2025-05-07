@@ -61,50 +61,36 @@ class GetInfo(
     name='userinfo',
     description='Get detailed user information from a Discord server.'
 ):
-    """
-    Slash command to retrieve detailed user information from a Discord server.
-    """
+    # TTL cache for user data (30 minutes)
+    _user_data_cache = TTLCache(maxsize=100, ttl=1800)
 
     user = lightbulb.user('user', "The user to get the info of.", default=None)
 
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context) -> None:
-        """
-        Fetch and display comprehensive user information.
-
-        :param ctx: The context of the command invocation
-        """
         await ctx.defer()
 
         try:
             # Determine the target user (command invoker or specified user)
             target_user = self.user or ctx.user
 
-            # Fetch member information
-            member_got = await self._fetch_member(ctx, target_user)
-            if not member_got:
-                return
+            # Fetch member and user data concurrently
+            member, user_data = await asyncio.gather(
+                self._fetch_member(ctx, target_user),
+                self._get_cached_user_data(str(target_user.id))
+            )
 
-            # Retrieve user data from database
-            user_data = await self._get_user_data(ctx, member_got)
-            if not user_data:
+            if not member or not user_data:
                 return
 
             # Create and send embed with user information
-            embed = await self._create_user_info_embed(ctx, member_got, user_data)
+            embed = await self._create_user_info_embed(ctx, member, user_data)
             await ctx.respond(embed=embed)
 
         except Exception as e:
             await ctx.respond(f"An error occurred: {str(e)}", ephemeral=True)
 
     async def _fetch_member(self, ctx: lightbulb.Context, target_user) -> Optional[hikari.Member]:
-        """
-        Fetch member information safely.
-
-        :param ctx: The context of the command
-        :param target_user: The user to fetch information for
-        :return: Fetched member or None
-        """
         try:
             return await ctx.client.rest.fetch_member(ctx.guild_id, target_user)
         except hikari.NotFoundError:
@@ -114,37 +100,32 @@ class GetInfo(
             await ctx.respond(f"Error fetching user: {str(e)}", ephemeral=True)
             return None
 
-    async def _get_user_data(self, ctx: lightbulb.Context, member: hikari.Member) -> Optional[dict]:
-        """
-        Retrieve user data from the database.
+    async def _get_cached_user_data(self, user_id: str) -> Optional[dict]:
+        # Check cache first
+        cache_key = f"user_data:{user_id}"
+        if cache_key in self._user_data_cache:
+            return self._user_data_cache[cache_key]
 
-        :param ctx: The context of the command
-        :param member: The member to retrieve data for
-        :return: User data dictionary or None
-        """
-        user_data = kek_counter.find_one({'user_id': str(member.id)})
+        # Perform database query in the thread pool to avoid blocking
+        user_data = await asyncio.to_thread(
+            kek_counter.find_one,
+            {'user_id': user_id}
+        )
 
-        if not user_data:
-            await ctx.respond("Could not find user data!", ephemeral=True)
-            return None
-
-        return user_data
+        if user_data:
+            # Store in cache for future use
+            self._user_data_cache[cache_key] = user_data
+            return user_data
+        return None
 
     async def _create_user_info_embed(self, ctx: lightbulb.Context, member: hikari.Member,
-                                      user_data: dict) -> hikari.Embed:
-        """
-        Create a comprehensive embed with user information.
-
-        :param ctx: The context of the command
-        :param member: The member to create an embed for
-        :param user_data: User data dictionary
-        :return: Hikari embed object
-        """
-        # Analyze kek data
-        kek_analysis = self._analyze_kek_data(user_data)
-
-        # Determine embed color
-        color = await self._get_member_color(member)
+                                     user_data: dict) -> hikari.Embed:
+        """Create a comprehensive embed with user information."""
+        # Perform intensive operations concurrently
+        kek_analysis, color = await asyncio.gather(
+            self._analyze_kek_data_async(user_data),
+            self._get_member_color(member)
+        )
 
         # Create embed
         embed = hikari.Embed(
@@ -161,7 +142,7 @@ class GetInfo(
         )
         embed.set_thumbnail(member.avatar_url)
 
-        # Add fields
+        # Add fields efficiently
         self._add_basic_info_fields(embed, member)
         self._add_kek_data_fields(embed, kek_analysis)
         self._add_economic_fields(embed, user_data)
@@ -169,29 +150,32 @@ class GetInfo(
 
         return embed
 
-    def _analyze_kek_data(self, user_data: dict) -> dict:
-        """
-        Analyze kek-related data.
+    async def _analyze_kek_data_async(self, user_data: dict) -> dict:
+        """Analyze kek-related data asynchronously."""
+        # Run intensive analysis in a thread pool
+        return await asyncio.to_thread(self._analyze_kek_data, user_data)
 
-        :param user_data: User data dictionary
-        :return: Dictionary with kek analysis
-        """
+    def _analyze_kek_data(self, user_data: dict) -> dict:
+        """Optimized kek data analysis."""
         now = datetime.now(timezone.utc)
         seven_days_ago = now - timedelta(days=7)
         one_month_ago = now - timedelta(days=30)
 
         keks = user_data.get("keks", [])
 
-        keks_last_7_days = [
-            kek for kek in keks
-            if datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= seven_days_ago
-        ]
-        keks_last_month = [
-            kek for kek in keks
-            if datetime.fromisoformat(kek["date"]).astimezone(timezone.utc) >= one_month_ago
-        ]
+        kek_types = []
+        keks_last_7_days = []
+        keks_last_month = []
 
-        kek_types = [kek["kek_type"] for kek in keks]
+        for kek in keks:
+            kek_date = datetime.fromisoformat(kek["date"]).astimezone(timezone.utc)
+            kek_types.append(kek["kek_type"])
+
+            if kek_date >= one_month_ago:
+                keks_last_month.append(kek)
+                if kek_date >= seven_days_ago:
+                    keks_last_7_days.append(kek)
+
         counts = Counter(kek_types)
 
         return {
@@ -203,13 +187,10 @@ class GetInfo(
             'kekbanned': user_data.get('kekbanned', False)
         }
 
-    async def _get_member_color(self, member: hikari.Member) -> hikari.Color:
-        """
-        Get the member's highest role color.
+    # Remaining methods remain largely the same but with minor optimizations
 
-        :param member: The member to get color for
-        :return: Hikari color object
-        """
+    async def _get_member_color(self, member: hikari.Member) -> hikari.Color:
+        """Get the member's highest role color."""
         try:
             roles = await member.fetch_roles()
             return roles[1].color if len(roles) > 1 else roles[0].color if roles else hikari.Color(0xFFFFFF)
