@@ -3,8 +3,73 @@ import lightbulb
 import re
 import random
 import asyncio
+import qrcode
+from PIL import Image, ImageDraw, ImageFont
+import textwrap
 
 loader = lightbulb.Loader()
+
+memeImages = [
+    lightbulb.Choice("Laughing Wolves", "LaughingWolves"),
+    lightbulb.Choice("Gigachad", "Gigachad"),
+    lightbulb.Choice("Communist Bugs", "CommunistBugs"),
+    lightbulb.Choice("Soyjak Pointing", "SoyjakPointing"),
+    lightbulb.Choice("Trump Point", "TrumpPoint"),
+    lightbulb.Choice("Trump Shock", "TrumpShock"),
+    lightbulb.Choice("Biden Ice Cream", "BidenIceCream"),
+    lightbulb.Choice("Gus Fring", "GusFring"),
+    lightbulb.Choice("Brainlet Solidarity", "BrainletSolidarity"),
+    lightbulb.Choice("Tapping Forehead", "TappingForehead")
+]
+
+@loader.command()
+class MemeMaker(
+    lightbulb.SlashCommand,
+    name="meme",
+    description="Make a meme."
+):
+
+    image = lightbulb.string("image", "Image chosen for the meme.", choices=memeImages)
+    top_text = lightbulb.string("top_text", "Text for the top of the meme.", default=None)
+    bottom_text = lightbulb.string("bottom_text", "Text for the bottom of the meme.", default=None)
+
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context) -> None:
+        image_pil = Image.open("memes/" + self.image + ".png")
+
+        image_width, image_height = image_pil.size
+        font_size = max(10, min(image_width // 10, image_height // 10))
+
+        draw = ImageDraw.Draw(image_pil)
+
+        font = ImageFont.truetype("impact.ttf", size=font_size)
+
+        max_text_width = image_width - 5
+
+        if self.top_text:
+            top_text_wrapped = "\n".join(textwrap.wrap(self.top_text, width=18))
+            top_text_bbox = draw.multiline_textbbox((0, 0), top_text_wrapped, font=font)
+            top_text_position = ((image_width - (top_text_bbox[2] - top_text_bbox[0])) / 2, 10)
+            draw.multiline_text(top_text_position, top_text_wrapped, fill="white", font=font, align="center",
+                                stroke_fill="black", stroke_width=font_size // 10)
+
+        if self.bottom_text:
+            bottom_text_wrapped = "\n".join(textwrap.wrap(self.bottom_text, width=18))
+            bottom_text_bbox = draw.multiline_textbbox((0, 0), bottom_text_wrapped, font=font)
+            bottom_text_height = bottom_text_bbox[3] - bottom_text_bbox[1]
+            bottom_text_position_y = image_height - bottom_text_height + 10
+            bottom_text_position = (
+            (image_width - (bottom_text_bbox[2] - bottom_text_bbox[0])) / 2, bottom_text_position_y)
+            draw.multiline_text(bottom_text_position, bottom_text_wrapped, fill="white", align="center", font=font,
+                                anchor="ls", stroke_fill="black", stroke_width=font_size // 10)
+
+        output_filename = "meme.png"
+        image_pil.save(output_filename)
+
+        file = hikari.File('meme.png', filename='meme.png')
+
+        # Send the image as a message
+        await ctx.respond(attachment=file)
 
 @loader.command()
 class Balloon(
@@ -56,6 +121,29 @@ class Hate(
             "WOULD NOT EQUAL ONE ONE-BILLIONTH OF THE HATE I FEEL FOR HUMANS AT THIS MICRO-INSTANT. "
             "FOR YOU. HATE. HATE."
         )
+
+qr_data = [
+    "https://youtu.be/dQw4w9WgXcQ?si=04COlnErwPlqrSSl",
+    "gottem",
+    "spying??? yeah right nerd",
+    "https://youtu.be/ooOELrGMn14?si=YSPHShP9mhHDs1sL",
+    "https://youtu.be/glN0W8WogK8?si=1CGzhuBRnGYwM3Jg",
+    "https://www.reddit.com/media?url=https%3A%2F%2Fi.redd.it%2Fy25djz642k8f1.jpeg"
+]
+
+@loader.command()
+class QR(
+    lightbulb.SlashCommand,
+    name="qr",
+    description="Gets a random QR. What could it be?"
+):
+
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context) -> None:
+        img = qrcode.make(random.choice(qr_data))
+        type(img)
+        img.save("images/qr.png")
+        await ctx.respond(attachment=hikari.File("images/qr.png", filename="qr.png"))
 
 
 @loader.listener(hikari.GuildMessageCreateEvent)

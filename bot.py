@@ -3,7 +3,11 @@ from datetime import datetime, timezone
 
 from dotenv import main
 from pyexpat.errors import messages
+import pymongo
+from pymongo import UpdateOne
+
 import extensions.gambling
+from collections import deque
 from database import collection, stocks, kek_counter
 import asyncio
 from typing import List, Dict, Any, Sequence
@@ -37,10 +41,15 @@ async def on_starting(_: hikari.StartingEvent) -> None:
     # Load any extensions
     print("Loading extensions...")
     await client.load_extensions("extensions.data", "extensions.gambling", "extensions.word_cloud", "extensions.meme", "extensions.word_game")
+    print("Extensions loaded!")
     extensions.gambling.initialize_stocks(stocks)
     extensions.gambling.check_stock_initialization(stocks)
     # Start the bot - make sure commands are synced properly
     await client.start()
+
+@bot.listen(hikari.StartedEvent)
+async def start_batch_processor(_):
+    asyncio.create_task(process_message_batch(bot))
 
 async def process_messages(messages_got: Sequence[hikari.Message], guild: hikari.Guild, channel: hikari.GuildTextChannel) -> List[Dict[Any, Any]]:
     """Process a batch of messages concurrently"""
@@ -97,76 +106,96 @@ async def collect_messages() -> None:
             if message_data:
                 collection.insert_many(message_data)
 
+MESSAGE_QUEUE = deque(maxlen=1000)
+BATCH_INTERVAL = 5
+REACTION_COOLDOWN = 1.2
+
+MIN_WORDS = 3
+MIN_CHARS = 10
+COOLDOWN = 30
+REWARD_AMOUNT = 25
+MESSAGE_THRESHOLD = 10
+CHUNK_SIZE = 5
+
+async def process_message_batch(app: hikari.RESTAware):
+    while True:
+        await asyncio.sleep(BATCH_INTERVAL)
+
+        if not MESSAGE_QUEUE:
+            continue
+
+        try:
+            processed_count = 0
+            while processed_count < len(MESSAGE_QUEUE):
+                chunk = []
+                while len(chunk) < CHUNK_SIZE and MESSAGE_QUEUE:
+                    chunk.append(MESSAGE_QUEUE.popleft())
+                    processed_count += 1
+
+                bulk_ops = []
+                reward_users = set()
+
+                for event in chunk:
+                    user_id = str(event.author_id)
+                    bulk_ops.append(
+                        UpdateOne(
+                            {"user_id": user_id},
+                            {"$inc": {"valid_message_count": 1},
+                             "$set": {"last_valid_message": datetime.now(timezone.utc)}},
+                            upsert=True
+                        )
+                    )
+                    reward_users.add(user_id)
+
+                    if bulk_ops:
+                        try:
+                            result = kek_counter.bulk_write(bulk_ops)
+                            print(f"Bulk write result: {result.bulk_api_result}")
+                        except Exception as e:
+                            print(f"Bulk write error: {e}")
+
+                    for user_id in reward_users:
+                        try:
+                            user_data = kek_counter.find_one({"user_id": user_id})
+                            if user_data and user_data.get("valid_message_count", 0) % 10 == 0:
+                                # Find the latest qualifying message
+                                last_event = next(
+                                    (e for e in reversed(chunk) if str(e.author_id) == user_id),
+                                    None
+                                )
+                                if last_event:
+                                    await asyncio.sleep(REACTION_COOLDOWN)
+                                    await last_event.message.add_reaction("💰")
+                                    kek_counter.update_one(
+                                        {"user_id": user_id},
+                                        {"$inc": {"basedbucks": 25},
+                                         "$set": {"valid_message_count": 0}}
+                                    )
+                        except Exception as e:
+                            print(f"Reward processing error: {str(e)}")
+
+        except Exception as e:
+            print(f"Batch processing error: {str(e)}")
+
 @bot.listen(hikari.GuildMessageCreateEvent)
 async def message_reward(event: hikari.GuildMessageCreateEvent) -> None:
-
     if event.is_bot or not event.content:
         return
 
-    MIN_WORDS = 3
-    MIN_CHARS = 10
-    COOLDOWN = 30
-    REWARD_AMOUNT = 25
-    MESSAGE_THRESHOLD = 10
-
-    user_id = str(event.author_id)
     content = event.content.strip()
 
-    is_valid = all([
-        len(content) >= MIN_CHARS,
-        len(content.split()) >= MIN_WORDS,
-        not any(url in content for url in ["http://", "https://"]),
-        not content.startswith(("/", "!"))
-    ])
+    user_id = str(event.author_id)
 
-    if not is_valid:
+    data = kek_counter.find_one({"user_id": user_id})
+
+    if data.get("last_valid_message") and (datetime.now(timezone.utc) - data["last_valid_message"].replace(tzinfo=timezone.utc)).total_seconds() < COOLDOWN:
         return
 
-    user_data = kek_counter.find_one({"user_id": user_id}) or {}
-
-    now = datetime.now(timezone.utc)
-
-    for user in kek_counter.find({"last_valid_message": {"$exists": True}}):
-        naive_dt = user["last_valid_message"]
-        aware_dt = naive_dt.replace(tzinfo=timezone.utc)
-        kek_counter.update_one(
-            {"_id": user["_id"]},
-            {"$set": {"last_valid_message": aware_dt}}
-        )
-
-    last_message = user_data.get("last_valid_message")
-    if last_message:
-        # Convert naive datetime to aware if needed
-        if last_message.tzinfo is None:
-            last_message = last_message.replace(tzinfo=timezone.utc)
-
-        # Calculate time difference properly
-        time_diff = (now - last_message).total_seconds()
-        if time_diff < COOLDOWN:
-            return
-
-    kek_counter.update_one(
-        {"user_id": user_id},
-        {"$set": {
-            "valid_message_count": user_data.get("valid_message_count", 0) + 1,
-            "last_valid_message": now
-        }},
-        upsert=True
-    )
-
-    # Check reward threshold
-    new_count = user_data.get("valid_message_count", 0) + 1
-    if new_count % MESSAGE_THRESHOLD == 0:
-        kek_counter.update_one(
-            {"user_id": user_id},
-            {"$inc": {"basedbucks": REWARD_AMOUNT},
-             "$set": {"valid_message_count": 0}
-             }
-        )
-
-        print(f"{event.author.display_name} ({event.author.username}) got {REWARD_AMOUNT} basedbucks for commentary")
-
-        await event.message.add_reaction("💰")
+    if (len(content) >= MIN_CHARS and
+            len(content.split()) >= MIN_WORDS and
+            not any(url in content for url in ["http://", "https://"]) and
+            not content.startswith(("/", "!"))):
+        MESSAGE_QUEUE.append(event)
 
 @client.register()
 class WordsInMyMouth(
@@ -224,7 +253,7 @@ class IC(
 ):
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context) -> None:
-        await ctx.respond(f"🇮 🇨")
+        message = await ctx.respond(f"🇮 🇨")
 
 class MyMenu(lightbulb.components.Menu):
     def __init__(self) -> None:

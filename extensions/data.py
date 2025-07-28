@@ -827,11 +827,13 @@ async def kek_counting(event: hikari.GuildReactionAddEvent) -> None:
         if user.is_bot:
             return
 
+        member = await get_member_safe(event.app, event.guild_id, message.author.id)
+
         # Get message author
-        if message.interaction and message.interaction.name == "meme" and message.author.id == BOT_ID:
-            member = await get_member_safe(event.app, event.guild_id, message.interaction.user.id)
-        else:
-            member = await get_member_safe(event.app, event.guild_id, message.author.id)
+        #if message.interaction_metadata and message.interaction_metadata == "meme" and message.author.id == BOT_ID:
+        #    member = await get_member_safe(event.app, event.guild_id, message.interaction.user.id)
+        #else:
+        #    member = await get_member_safe(event.app, event.guild_id, message.author.id)
 
         if not member or user.id == member.id:
             return

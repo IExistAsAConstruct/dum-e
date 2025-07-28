@@ -1955,12 +1955,12 @@ MARKET_WIDE_BUST_PROBABILITY = 0.002  # 0.2% chance of market-wide bust
 MEGA_EVENT_PROBABILITY = 0.0005  # 0.05% chance of massive price swing
 INTER_STOCK_EVENT_PROBABILITY = 0.008  # 0.8% chance of one stock rising while another falls
 SECTOR_EVENT_PROBABILITY = 0.004  # 0.4% chance of sector-wide event
-DIVIDEND_EVENT_PROBABILITY = 0.005  # 0.5% chance of dividend payout
+DIVIDEND_EVENT_PROBABILITY = 0.0075  # 0.75% chance of dividend payout
 STOCK_SPLIT_PROBABILITY = 0.002  # 0.2% chance of stock split
 PENNY_STOCK_THRESHOLD = 1.00  # Price below which a stock is considered a penny stock
-PENNY_STOCK_DURATION = timedelta(hours=2)  # Time period to track low prices
-PENNY_STOCK_RECOVERY_PROBABILITY = 0.50  # 50% chance of recovery event
-PENNY_STOCK_RECOVERY_MULTIPLIER = (4.0, 10.0)  # 400-1000% price increase
+PENNY_STOCK_DURATION = timedelta(hours=4)  # Time period to track low prices
+PENNY_STOCK_RECOVERY_PROBABILITY = 0.25  # 25% chance of recovery event
+PENNY_STOCK_RECOVERY_MULTIPLIER = (1.5, 4.0)  # 150-400% price increase
 
 MEGA_EVENT_MULTIPLIER = 15  # Increased to 1500% price change
 INTER_STOCK_MULTIPLIER = 2.0  # Increased to 100% price change for competing stocks
@@ -2129,6 +2129,11 @@ def generate_stock_price_change(
     price_multiplier = 1.0
     split_info = None
 
+    if symbol == "REDP" and stocks_data.get("REDP", {}).get('price') > 0.92:
+        multiplier = 0.1
+        return round(current_price * multiplier,
+                     2), f"Economic Bust affecting {symbol}! Stock price falls rapidly!", None, split_info
+
     if stocks_data and symbol and current_price < PENNY_STOCK_THRESHOLD:
         stock_info = stocks_data.get(symbol, {})
         last_updated = stock_info.get('last_updated')
@@ -2197,7 +2202,7 @@ def generate_stock_price_change(
         }
 
     # Check for dividend payout
-    if random.random() < DIVIDEND_EVENT_PROBABILITY:
+    if random.random() < DIVIDEND_EVENT_PROBABILITY and stocks_data[symbol].get('dividend_yield', 0) > 0:
         dividend_yield = stocks_data[symbol].get('dividend_yield', 0.02)
         dividend_amount = current_price * dividend_yield
         events.append(f"💰 Dividend Alert! {symbol} pays ${dividend_amount:.2f} per share!")
@@ -2560,7 +2565,7 @@ class BuyStock(
     description="Buy stocks from the market"
 ):
     symbol = lightbulb.string("symbol", "Stock symbol to buy", choices=STOCK_CHOICES)
-    quantity = lightbulb.number("quantity", "Number of stocks to buy. Max limit is 100k.", min_value=1, max_value=100000)
+    quantity = lightbulb.number("quantity", "Number of stocks to buy. Max limit is 1M.", min_value=1, max_value=1000000)
 
     @lightbulb.invoke
     async def invoke(self, ctx: lightbulb.Context):
@@ -2830,7 +2835,7 @@ class CheckStocks(
                 stocks_to_plot[stock_symbol]['prices'].append(stock_info['price'])
 
         # Plot each stock with a different color
-        colors = ['blue', 'green', 'red', 'purple', 'orange', 'cyan', 'magenta', 'yellow', 'brown', 'pink']
+        colors = ['blue', 'green', 'red', 'purple', 'orange', 'cyan', 'magenta', 'yellow', 'brown', 'pink', 'indigo', 'gold']
 
         for i, (stock_symbol, data) in enumerate(stocks_to_plot.items()):
 
@@ -2991,6 +2996,206 @@ SLOT_SYMBOLS = {
     "🍉": {"value": 10, "weight": 4},  # Rare (significantly decreased)
     "💎": {"value": 25, "weight": 1},  # Very rare (significantly decreased)
 }
+
+
+@loader.command(guilds=[1178375822105657384], global_=False)
+class TriggerMarketEvent(
+    lightbulb.SlashCommand,
+    name="trigger-market-event",
+    description="Trigger a stock market event [Owner Only]"
+):
+    event_type = lightbulb.string(
+        "event_type",
+        "Type of event to trigger",
+        choices=[
+            Choice("boom", "Boom - Stock price increase"),
+            Choice("bust", "Bust - Stock price decrease"),
+            Choice("mega", "Mega - Major price swing"),
+            Choice("sector", "Sector - Affects all stocks in a sector"),
+            Choice("split", "Split - Trigger a stock split")
+        ]
+    )
+    magnitude = lightbulb.number(
+        "magnitude",
+        "Magnitude of the event (1-10, with 10 being most extreme)",
+        min_value=1,
+        max_value=10
+    )
+    symbol = lightbulb.string(
+        "symbol",
+        "Stock symbol to affect (optional - random if not provided)",
+        default=None,
+        choices=STOCK_CHOICES
+    )
+    sector = lightbulb.string(
+        "sector",
+        "Sector to affect (for sector events)",
+        default=None,
+        choices=SECTOR_CHOICES
+    )
+
+    @lightbulb.invoke
+    async def invoke(self, ctx: lightbulb.Context):
+        await ctx.defer()
+
+        # Get current stock data
+        stock_data = stocks.find_one({})
+        if not stock_data or "stocks" not in stock_data:
+            await ctx.respond("Error: No stock data found.", flags=hikari.MessageFlag.EPHEMERAL)
+            return
+
+        stocks_dict = stock_data["stocks"]
+
+        # Select a random symbol if none provided
+        selected_symbol = self.symbol
+        if not selected_symbol:
+            selected_symbol = random.choice(list(stocks_dict.keys()))
+
+        # Set default magnitude if not provided
+        magnitude_factor = (self.magnitude or 5) / 5.0  # Default to middle value
+
+        # Determine multiplier based on event type and magnitude
+        multiplier = 1.0
+        event_description = ""
+        affected_stocks = []
+
+        if self.event_type == "boom":
+            # Boom: 5-100% increase based on magnitude
+            multiplier = 1.0 + (0.1 * magnitude_factor * random.uniform(0.5, 1.5))
+            event_description = f"📈 Economic Boom! {selected_symbol} stock surges dramatically!"
+            affected_stocks = [(selected_symbol, multiplier)]
+
+        elif self.event_type == "bust":
+            # Bust: 5-70% decrease based on magnitude
+            multiplier = 1.0 - (0.1 * magnitude_factor * random.uniform(0.5, 0.7))
+            event_description = f"📉 Economic Bust! {selected_symbol} stock plummets!"
+            affected_stocks = [(selected_symbol, multiplier)]
+
+        elif self.event_type == "mega":
+            # Use existing mega event system
+            sector = STOCK_SECTORS.get(selected_symbol, "ALL")
+            event = generate_market_event(selected_symbol, sector)
+
+            # Adjust the multiplier based on the magnitude
+            base_multiplier = event["multiplier"]
+            adjusted_multiplier = ((
+                                               base_multiplier - 1.0) * magnitude_factor) + 1.0 if base_multiplier > 1.0 else 1.0 - (
+                        (1.0 - base_multiplier) * magnitude_factor)
+
+            event_description = event["message"]
+            affected_stocks = [(selected_symbol, adjusted_multiplier)]
+
+        elif self.event_type == "sector":
+            if not self.sector:
+                await ctx.respond("Error: Sector must be specified for sector events.",
+                                  flags=hikari.MessageFlag.EPHEMERAL)
+                return
+
+            # Sector event: affects all stocks in the chosen sector
+            sector_stocks = [s for s in stocks_dict.keys() if STOCK_SECTORS.get(s) == self.sector]
+            if not sector_stocks:
+                await ctx.respond(f"Error: No stocks found in the {self.sector} sector.",
+                                  flags=hikari.MessageFlag.EPHEMERAL)
+                return
+
+            sector_event = random.choice(SECTOR_EVENTS[self.sector])
+            event_description = sector_event
+
+            # Adjust multiplier based on magnitude (positive or negative randomly)
+            direction = random.choice([-1, 1])
+            base_sector_impact = SECTOR_EVENT_MULTIPLIER ** direction
+
+            # Increase impact based on magnitude
+            sector_multiplier = 1.0 + (
+                        (base_sector_impact - 1.0) * magnitude_factor) if base_sector_impact > 1.0 else 1.0 - (
+                        (1.0 - base_sector_impact) * magnitude_factor)
+
+            affected_stocks = [(s, sector_multiplier) for s in sector_stocks]
+
+        elif self.event_type == "split":
+            # Stock split
+            current_price = stocks_dict[selected_symbol]["price"]
+            if current_price < 50:
+                await ctx.respond(f"Error: {selected_symbol} price (${current_price:.2f}) is too low for a split.",
+                                  flags=hikari.MessageFlag.EPHEMERAL)
+                return
+
+            # Determine split ratio based on price and magnitude
+            if current_price > 1000:
+                split_options = [4, 5, 6, 8, 10]
+            elif current_price > 500:
+                split_options = [3, 4, 5]
+            else:
+                split_options = [2, 3]
+
+            # Higher magnitude increases chance of higher split ratio
+            split_ratio = split_options[min(int(self.magnitude / 10.0 * len(split_options)), len(split_options) - 1)]
+
+            event_description = f"📈 Stock Split! {selected_symbol} shares split {split_ratio}:1"
+            affected_stocks = [(selected_symbol, 1.0 / split_ratio)]
+
+            # Handle split for all users with this stock
+            users_with_stocks = kek_counter.find({"stocks": {"$exists": True}})
+
+            for user in users_with_stocks:
+                updated_portfolio = []
+                portfolio_modified = False
+
+                for stock in user.get("stocks", []):
+                    if stock["symbol"] == selected_symbol:
+                        updated_portfolio.append({
+                            "symbol": stock["symbol"],
+                            "quantity": stock["quantity"] * split_ratio,
+                            "purchase_price": stock["purchase_price"] / split_ratio,
+                            "purchase_date": stock["purchase_date"]
+                        })
+                        portfolio_modified = True
+                    else:
+                        updated_portfolio.append(stock)
+
+                if portfolio_modified:
+                    kek_counter.update_one(
+                        {"_id": user["_id"]},
+                        {"$set": {"stocks": updated_portfolio}}
+                    )
+
+        # Apply changes to affected stocks
+        for stock_symbol, stock_multiplier in affected_stocks:
+            if stock_symbol in stocks_dict:
+                current_price = stocks_dict[stock_symbol]["price"]
+                new_price = current_price * stock_multiplier
+
+                # Ensure price stays within bounds
+                new_price = max(MIN_STOCK_PRICE, min(MAX_STOCK_PRICE, new_price))
+
+                # Update the stock price
+                stocks.update_one(
+                    {},
+                    {"$set": {
+                        f"stocks.{stock_symbol}.price": round(new_price, 2),
+                        f"stocks.{stock_symbol}.last_updated": datetime.now(timezone.utc),
+                        f"stocks.{stock_symbol}.event": {
+                            "type": event_description,
+                            "timestamp": datetime.now(timezone.utc)
+                        }
+                    }}
+                )
+
+        # Save historical data for the updated stocks
+        updated_stocks = stocks.find_one({})
+        save_stock_price_history(updated_stocks)
+
+        # Announce the event to economic channels
+        for channel_id in ECONOMIC_UPDATE_CHANNELS:
+            await ctx.client.app.rest.create_message(
+                channel=channel_id,
+                content=f"🔔 Economic Event: {event_description}"
+            )
+
+        # Respond with success message
+        affected_symbols = ", ".join([symbol for symbol, _ in affected_stocks])
+        await ctx.respond(
+            f"Event triggered successfully!\n\nEvent: {event_description}\nAffected stocks: {affected_symbols}")
 
 # Create weighted symbol list for random selection
 WEIGHTED_SYMBOLS = []
